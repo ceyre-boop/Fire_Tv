@@ -34,6 +34,17 @@ label{font-size:13px;color:var(--mut);display:block;margin-top:10px}
 .send{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;margin:12px 0}.send input{margin:0}.send button{height:48px;padding:0 20px}
 small,.note{color:var(--mut);display:block;margin:10px 4px 0;font-size:12.5px;line-height:1.5}
 #pc,#hl{display:none}
+.seg{display:grid;grid-template-columns:1fr 1fr;background:var(--btn);border-radius:12px;padding:3px;margin:14px 0 10px}.seg button{height:34px;font-size:13.5px;background:transparent;color:var(--mut);border-radius:9px}.seg .on{background:var(--card);color:var(--tx);box-shadow:var(--sh)}
+.dpad,.swipe{position:relative;width:min(100%,340px);aspect-ratio:1;margin:8px auto 14px;border-radius:50%;background:var(--card);border:1px solid var(--line);box-shadow:var(--sh);touch-action:none;overflow:hidden}
+.swipe{display:none;border-radius:28px;aspect-ratio:1.15;text-align:center;color:var(--mut);align-items:center;justify-content:center;font-size:14px;line-height:1.6}.swipe p{margin:0;pointer-events:none}
+.dpad .w{position:absolute;inset:0;opacity:0;background:var(--acc);transition:opacity .08s}
+.dpad .w.up{clip-path:polygon(50% 50%,0 0,100% 0)}.dpad .w.right{clip-path:polygon(50% 50%,100% 0,100% 100%)}.dpad .w.down{clip-path:polygon(50% 50%,100% 100%,0 100%)}.dpad .w.left{clip-path:polygon(50% 50%,0 100%,0 0)}
+.dpad .w.on{opacity:.28}
+.dpad .a{position:absolute;color:var(--mut);font-size:20px;pointer-events:none}.a.u{top:9%;left:50%;transform:translateX(-50%)}.a.d{bottom:9%;left:50%;transform:translateX(-50%)}.a.l{left:9%;top:50%;transform:translateY(-50%)}.a.r{right:9%;top:50%;transform:translateY(-50%)}
+.dpad .mid{position:absolute;left:50%;top:50%;width:36%;aspect-ratio:1;transform:translate(-50%,-50%);border-radius:50%;background:var(--acc);color:var(--onacc);display:flex;align-items:center;justify-content:center;font-weight:600;transition:background .08s,transform .08s;pointer-events:none}
+.dpad .mid.on{background:var(--accx);transform:translate(-50%,-50%) scale(.94)}
+.hold{position:relative;overflow:hidden}.hold:after{content:"";position:absolute;left:0;bottom:0;height:4px;width:0;background:var(--bad)}.hold.go:after{width:100%;transition:width .7s linear}
+#toast{position:fixed;left:50%;bottom:max(18px,env(safe-area-inset-bottom));transform:translate(-50%,20px);background:var(--tx);color:var(--bg);padding:9px 16px;border-radius:20px;font-size:13.5px;opacity:0;transition:.2s;pointer-events:none;z-index:9}#toast.show{opacity:.94;transform:translate(-50%,0)}#toast.err{background:var(--bad);color:#fff}
 .gauge{padding:6px 2px}.gh{display:flex;justify-content:space-between;font-size:14px;margin-bottom:6px}.gh b{font-weight:600}
 .bar{height:6px;background:var(--btn);border-radius:6px;overflow:hidden}.bar i{display:block;height:100%;background:var(--ok);border-radius:6px;transition:width .4s}
 .bar i.bad{background:var(--bad)}b.bad{color:var(--bad)}
@@ -44,14 +55,15 @@ small,.note{color:var(--mut);display:block;margin:10px 4px 0;font-size:12.5px;li
 details{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:14px;margin-top:22px}summary{font-weight:500;cursor:pointer}
 code{font-size:12px;background:var(--btn);padding:1px 5px;border-radius:5px}
 </style></head><body>
+<div id="toast"></div>
 <header><h1>Remote</h1><span id="st">not connected</span></header>
 <nav class="tabs"><button id="tTv" class="on">TV</button><button id="tPc">Computer</button><button id="tHl">Health</button></nav>
 <div id="tv">
-<div class="row c3"><button class="warn" data-k="POWER">Power</button><button data-k="HOME">Home</button><button data-k="MUTE">Mute</button></div>
-<div class="pad">
-<span></span><button data-k="UP">&#9650;</button><span></span>
-<button data-k="LEFT">&#9664;</button><button class="ok" data-k="OK">OK</button><button data-k="RIGHT">&#9654;</button>
-<span></span><button data-k="DOWN">&#9660;</button><span></span></div>
+<div class="row c3"><button class="warn hold" data-k="POWER">Hold: Power</button><button data-k="HOME">Home</button><button data-k="MUTE">Mute</button></div>
+<div class="seg"><button id="mPad" class="on">Pad</button><button id="mSwipe">Swipe</button></div>
+<div id="dpad" class="dpad"><i class="w up"></i><i class="w right"></i><i class="w down"></i><i class="w left"></i>
+<span class="a u">&#9650;</span><span class="a r">&#9654;</span><span class="a d">&#9660;</span><span class="a l">&#9664;</span><div class="mid">OK</div></div>
+<div id="swipe" class="swipe"><p>Swipe to move<br>Tap to select</p></div>
 <div class="row c3"><button data-k="BACK">Back</button><button data-k="HOME">Home</button><button data-k="MENU">Menu</button></div>
 <div class="card"><div class="row c4"><button data-k="REWIND">&#9194;&#xFE0E;</button><button data-k="PLAYPAUSE">&#9199;&#xFE0E;</button><button data-k="FF">&#9193;&#xFE0E;</button><button data-k="VOLUP">Vol +</button></div>
 <div class="row c4"><button data-k="PREV">&#9198;&#xFE0E;</button><button data-k="NEXT">&#9197;&#xFE0E;</button><button data-k="VOLDOWN">Vol &minus;</button><button data-k="SLEEP">Sleep</button></div></div>
@@ -117,11 +129,41 @@ document.addEventListener("click",e=>{const t=e.target.closest("button");if(!t)r
   if(t.dataset.sv){pcApi("svc",{label:t.dataset.l,op:t.dataset.sv}).then(()=>setTimeout(hlHealth,1500));return}
   if(t.dataset.kill){if(confirm("Kill process "+t.dataset.kill+"?"))pcApi("kill",{pid:t.dataset.kill}).then(()=>setTimeout(hlHealth,800));return}
   if(t.dataset.pk){pcApi("key",{key:t.dataset.pk});return}if(t.dataset.po){pcApi("open",{app:t.dataset.po});return}
-  if(t.dataset.k)api("/key",{key:t.dataset.k});else if(t.dataset.a)api("/launch",{app:t.dataset.a})});
+  if(t.dataset.k)api("/key",{key:t.dataset.k});else if(t.dataset.a)api("/launch",{app:t.dataset.a}).then(j=>j?toast("Opening "+t.dataset.a):toast("Not sent - bridge or TV offline",1))});
 $("#send").onclick=async()=>{await api("/text",{text:$("#txt").value});$("#txt").value=""};
 $("#psend").onclick=async()=>{await pcApi("type",{text:$("#ptxt").value});$("#ptxt").value=""};
 $("#smac").onclick=()=>pcApi("config",{mac:$("#mac").value.trim()});
 $("#save").onclick=async()=>{S("bridge",$("#bridge").value.trim());S("ip",$("#ip").value.trim());
   const j=await api("/connect",{});if(j){st(j.result.slice(0,40)||"connected","ok");$("#setup").open=false}};
+
+/* ---- forgiving TV input ---- */
+const toast=(t,err)=>{const e=$("#toast");e.textContent=t;e.className="show"+(err?" err":"");clearTimeout(toast.t);toast.t=setTimeout(()=>e.className="",1100)};
+const NAME={UP:"Up",DOWN:"Down",LEFT:"Left",RIGHT:"Right",OK:"OK",VOLUP:"Volume up",VOLDOWN:"Volume down",POWER:"Power",REWIND:"Rewind",FF:"Fast-forward"};
+async function sendKey(k){if(navigator.vibrate)navigator.vibrate(10);const j=await api("/key",{key:k});j?toast(NAME[k]||k):toast("Not sent - bridge or TV offline",1);return j}
+let rep=null;const stopRep=()=>{clearTimeout(rep?.d);clearInterval(rep?.i);rep=null};
+function press(k,repeat){stopRep();sendKey(k);if(repeat){rep={d:setTimeout(()=>{rep.i=setInterval(()=>sendKey(k),140)},380)}}}
+// D-pad: one big target. Anything inside the ring maps to the NEAREST direction, so sloppy taps still land.
+const dp=$("#dpad");let cur=null;
+const zone=e=>{const r=dp.getBoundingClientRect(),x=e.clientX-r.left-r.width/2,y=e.clientY-r.top-r.height/2,d=Math.hypot(x,y)/(r.width/2);
+  if(d<.36)return"OK";return Math.abs(x)>Math.abs(y)?(x>0?"RIGHT":"LEFT"):(y>0?"DOWN":"UP")};
+const light=k=>{dp.querySelectorAll(".w").forEach(w=>w.classList.toggle("on",k&&w.classList.contains(k.toLowerCase())));$(".mid").classList.toggle("on",k=="OK")};
+dp.addEventListener("pointerdown",e=>{e.preventDefault();dp.setPointerCapture(e.pointerId);cur=zone(e);light(cur);press(cur,cur!="OK")});
+dp.addEventListener("pointermove",e=>{if(cur===null)return;const z=zone(e);if(z!==cur){cur=z;light(z);press(z,z!="OK")}});  // slide finger = change direction
+const up=()=>{cur=null;light(null);stopRep()};dp.addEventListener("pointerup",up);dp.addEventListener("pointercancel",up);
+// Swipe mode: direction by dominant axis, short flick is enough; tap = OK; hold-drag repeats.
+const sw=$("#swipe");let s0=null;
+sw.addEventListener("pointerdown",e=>{e.preventDefault();sw.setPointerCapture(e.pointerId);s0={x:e.clientX,y:e.clientY,t:Date.now(),fired:0}});
+sw.addEventListener("pointermove",e=>{if(!s0)return;const dx=e.clientX-s0.x,dy=e.clientY-s0.y;if(Math.hypot(dx,dy)<22)return;
+  sendKey(Math.abs(dx)>Math.abs(dy)?(dx>0?"RIGHT":"LEFT"):(dy>0?"DOWN":"UP"));s0.x=e.clientX;s0.y=e.clientY;s0.fired++});
+sw.addEventListener("pointerup",e=>{if(s0&&!s0.fired&&Date.now()-s0.t<450)sendKey("OK");s0=null});
+const mode=m=>{dp.style.display=m=="pad"?"":"none";sw.style.display=m=="swipe"?"flex":"none";$("#mPad").className=m=="pad"?"on":"";$("#mSwipe").className=m=="swipe"?"on":"";S("mode",m)};
+$("#mPad").onclick=()=>mode("pad");$("#mSwipe").onclick=()=>mode("swipe");mode(L("mode")||"pad");
+// Volume/rewind/ff: hold to repeat.
+document.querySelectorAll("[data-k=VOLUP],[data-k=VOLDOWN],[data-k=REWIND],[data-k=FF]").forEach(b=>{b.dataset.rep=b.dataset.k;b.removeAttribute("data-k");
+  b.addEventListener("pointerdown",e=>{e.preventDefault();press(b.dataset.rep,true)});["pointerup","pointerleave","pointercancel"].forEach(ev=>b.addEventListener(ev,stopRep))});
+// Power: must hold ~0.7s so a stray tap can't turn the TV off.
+const pw=document.querySelector(".hold");let pt;pw.dataset.pk2=pw.dataset.k;pw.removeAttribute("data-k");
+pw.addEventListener("pointerdown",()=>{pw.classList.add("go");pt=setTimeout(()=>{pw.classList.remove("go");sendKey("POWER")},700)});
+["pointerup","pointerleave","pointercancel"].forEach(ev=>pw.addEventListener(ev,()=>{clearTimeout(pt);pw.classList.remove("go")}));
 if(L("tab")=="pc"||L("tab")=="hl")tab(L("tab"));else if(L("bridge"))api("/health");
 </script></body></html>
