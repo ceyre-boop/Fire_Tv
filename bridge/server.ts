@@ -129,8 +129,20 @@ const open5555 = (ip: string) => new Promise<boolean>((res) => {
 function subnets() {
   const out: string[] = [];
   for (const list of Object.values(networkInterfaces()))
-    for (const i of list ?? []) if (i.family === "IPv4" && !i.internal) out.push(i.address.split(".").slice(0, 3).join("."));
+    for (const i of list ?? []) if (i.family === "IPv4" && !i.internal && !i.address.startsWith("100.")) out.push(i.address.split(".").slice(0, 3).join("."));
   return out;
+}
+// every host in each interface's real subnet (e.g. a /22 spans 4 x /24), capped at 1024
+function scanHosts(): string[] {
+  const hosts = new Set<string>();
+  for (const list of Object.values(networkInterfaces()))
+    for (const i of list ?? []) {
+      if (i.family !== "IPv4" || i.internal || i.address.startsWith("100.")) continue;
+      const ip = i.address.split(".").reduce((a, o) => a * 256 + Number(o), 0), mask = i.netmask.split(".").reduce((a, o) => a * 256 + Number(o), 0);
+      const net = (ip & mask) >>> 0, size = Math.min(1024, (~mask >>> 0) + 1);
+      for (let n = 1; n < size - 1; n++) { const v = net + n; hosts.add([v >>> 24, (v >>> 16) & 255, (v >>> 8) & 255, v & 255].join(".")); }
+    }
+  return [...hosts];
 }
 async function check() {
   if (tv) {
@@ -140,11 +152,8 @@ async function check() {
     if (!tvOk) { if (/unauthorized/.test(state + r)) console.log("TV is asking to Allow debugging — accept it on screen."); if (!process.env.TV_IP) tv = null; }
     return;
   }
-  for (const base of subnets()) {
-    const hosts = Array.from({ length: 254 }, (_, i) => `${base}.${i + 1}`);
-    const hits = (await Promise.all(hosts.map(async (h) => ((await open5555(h)) ? h : null)))).filter(Boolean) as string[];
-    if (hits.length) { tv = hits[0]; console.log(`Found Fire TV at ${tv}`); return check(); }
-  }
+  const hits = (await Promise.all(scanHosts().map(async (h) => ((await open5555(h)) ? h : null)))).filter(Boolean) as string[];
+  if (hits.length) { tv = hits[0]; console.log(`Found Fire TV at ${tv}`); return check(); }
 }
 (async function loop() { try { await check(); } catch (e) { console.error(e); } setTimeout(loop, tvOk ? 8000 : 4000); })();
 
@@ -164,6 +173,10 @@ Bun.serve({
         return json(await pc(url.pathname.slice(4), b));
       }
       if (url.pathname === "/health") return json({ ok: true, tv, tvConnected: tvOk });
+      if (url.pathname === "/rescan") {   // forget the TV and look for it again right now
+        if (!process.env.TV_IP) tv = null; tvOk = false; await check();
+        return json({ ok: true, tv, tvConnected: tvOk });
+      }
       if (req.method !== "POST") return json({ error: "not found" }, 404);
       if (!tv || !tvOk) return json({ error: "tv not connected", tv }, 503);
       const b = (await req.json().catch(() => ({}))) as Record<string, string>;

@@ -34,6 +34,7 @@ label{font-size:13px;color:var(--mut);display:block;margin-top:10px}
 .send{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;margin:12px 0}.send input{margin:0}.send button{height:48px;padding:0 20px}
 small,.note{color:var(--mut);display:block;margin:10px 4px 0;font-size:12.5px;line-height:1.5}
 #pc,#hl{display:none}
+.tvbar{display:flex;justify-content:space-between;align-items:center;margin:0 4px 12px;font-size:13.5px;color:var(--mut)}#tvs{display:flex;align-items:center;gap:8px}
 .seg{display:grid;grid-template-columns:1fr 1fr;background:var(--btn);border-radius:12px;padding:3px;margin:14px 0 10px}.seg button{height:34px;font-size:13.5px;background:transparent;color:var(--mut);border-radius:9px}.seg .on{background:var(--card);color:var(--tx);box-shadow:var(--sh)}
 .dpad,.swipe{position:relative;width:min(100%,340px);aspect-ratio:1;margin:8px auto 14px;border-radius:50%;background:var(--card);border:1px solid var(--line);box-shadow:var(--sh);touch-action:none;overflow:hidden}
 .swipe{display:none;border-radius:28px;aspect-ratio:1.15;text-align:center;color:var(--mut);align-items:center;justify-content:center;font-size:14px;line-height:1.6}.swipe p{margin:0;pointer-events:none}
@@ -59,6 +60,7 @@ code{font-size:12px;background:var(--btn);padding:1px 5px;border-radius:5px}
 <header><h1>Remote</h1><span id="st">not connected</span></header>
 <nav class="tabs"><button id="tTv" class="on">TV</button><button id="tPc">Computer</button><button id="tHl">Health</button></nav>
 <div id="tv">
+<div class="tvbar"><span id="tvs"><i class="dot"></i>TV: checking&hellip;</span><button id="find" class="mini">Find TV</button></div>
 <div class="row c3"><button class="warn hold" data-k="POWER">Hold: Power</button><button data-k="HOME">Home</button><button data-k="MUTE">Mute</button></div>
 <div class="seg"><button id="mPad" class="on">Pad</button><button id="mSwipe">Swipe</button></div>
 <div id="dpad" class="dpad"><i class="w up"></i><i class="w right"></i><i class="w down"></i><i class="w left"></i>
@@ -165,5 +167,13 @@ document.querySelectorAll("[data-k=VOLUP],[data-k=VOLDOWN],[data-k=REWIND],[data
 const pw=document.querySelector(".hold");let pt;pw.dataset.pk2=pw.dataset.k;pw.removeAttribute("data-k");
 pw.addEventListener("pointerdown",()=>{pw.classList.add("go");pt=setTimeout(()=>{pw.classList.remove("go");sendKey("POWER")},700)});
 ["pointerup","pointerleave","pointercancel"].forEach(ev=>pw.addEventListener(ev,()=>{clearTimeout(pt);pw.classList.remove("go")}));
+
+async function tvStatus(){const j=await api("/health");const e=$("#tvs");if(!j){e.innerHTML='<i class="dot down"></i>Bridge unreachable';return}
+  e.innerHTML=j.tvConnected?`<i class="dot up"></i>TV connected (${j.tv})`:`<i class="dot down"></i>TV not found`}
+$("#find").onclick=async()=>{const e=$("#tvs");e.innerHTML='<i class="dot"></i>Searching your WiFi&hellip;';$("#find").disabled=true;
+  const j=await api("/rescan",{});$("#find").disabled=false;
+  if(!j){e.innerHTML='<i class="dot down"></i>Bridge unreachable';return}
+  j.tvConnected?(toast("Found TV at "+j.tv),tvStatus()):(e.innerHTML='<i class="dot down"></i>TV not found',toast("No TV found - is it on, same WiFi, ADB on?",1))};
+setInterval(()=>{if($("#tv").style.display!=="none"&&!document.hidden)tvStatus()},10000);setTimeout(tvStatus,300);
 if(L("tab")=="pc"||L("tab")=="hl")tab(L("tab"));else if(L("bridge"))api("/health");
 </script></body></html>
