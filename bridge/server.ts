@@ -191,15 +191,32 @@ function pair(link: string) { console.log(`\nScan with your phone (one time):\n$
 const lan = subnets()[0] ? Object.values(networkInterfaces()).flat().find((i) => i?.family === "IPv4" && !i.internal)?.address : null;
 console.log(`Bridge on :${PORT}${lan ? `  (LAN page: http://${lan}:${PORT})` : ""}`);
 if (!process.env.NO_TUNNEL) {
-  const t = Bun.spawn(["cloudflared", "tunnel", "--url", `http://localhost:${PORT}`, "--no-autoupdate"], { stdout: "ignore", stderr: "pipe" });
-  (async () => {
-    const dec = new TextDecoder(); let buf = "", done = false;
-    for await (const chunk of t.stderr) {
-      buf += dec.decode(chunk);
-      const m = buf.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
-      if (m && !done) { done = true; pair(`${SITE}/#b=${m[0]}&t=${TOKEN}`); console.log(`Alerts: subscribe to ntfy topic ${TOPIC}`); }
-    }
-  })();
-  process.on("exit", () => t.kill());
-  process.on("SIGINT", () => { t.kill(); process.exit(0); });
+  let t: ReturnType<typeof Bun.spawn> | null = null, url = "", fails = 0;
+  const start = () => {
+    t = Bun.spawn(["cloudflared", "tunnel", "--url", `http://localhost:${PORT}`, "--no-autoupdate"], { stdout: "ignore", stderr: "pipe" });
+    const mine = t; url = ""; fails = 0;
+    (async () => {
+      const dec = new TextDecoder(); let buf = "";
+      for await (const chunk of mine.stderr as any) {
+        buf += dec.decode(chunk);
+        const m = buf.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
+        if (m && !url) {
+          url = m[0]; pair(`${SITE}/#b=${url}&t=${TOKEN}`); console.log(`Alerts: subscribe to ntfy topic ${TOPIC}`);
+          // Phone notification: tap to re-point the site at the new address. Address only, never the token
+          // (the phone already stores the token from first pairing).
+          fetch("https://ntfy.sh/" + TOPIC, { method: "POST", headers: { Title: "Remote ready - tap to reconnect", Click: `${SITE}/#b=${url}` }, body: "Bridge has a new address." }).catch(() => {});
+        }
+      }
+    })();
+  };
+  start();
+  // watchdog: free quick tunnels die; if ours stops answering, replace it
+  setInterval(async () => {
+    if (!url) return;
+    const ok = await fetch(url + "/health", { signal: AbortSignal.timeout(8000) }).then((r) => r.ok).catch(() => false);
+    fails = ok ? 0 : fails + 1;
+    if (fails >= 3) { console.log("tunnel dead, restarting"); t?.kill(); start(); }
+  }, 30_000);
+  process.on("exit", () => t?.kill());
+  process.on("SIGINT", () => { t?.kill(); process.exit(0); });
 }
