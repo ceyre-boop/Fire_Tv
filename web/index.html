@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><title>Fire TV Remote</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#0b0d12"><link rel="manifest" href="/manifest.json">
+<style>
+:root{--bg:#0b0d12;--card:#161a23;--btn:#202634;--hi:#ff9900;--tx:#e8ecf4;--mut:#8b94a7}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none}
+body{margin:0;background:var(--bg);color:var(--tx);font:16px system-ui,sans-serif;padding:16px;padding-bottom:40px;max-width:420px;margin:auto}
+h1{font-size:18px;margin:4px 0 12px;display:flex;justify-content:space-between;align-items:center}
+#st{font-size:12px;color:var(--mut)}#st.ok{color:#4ade80}#st.bad{color:#f87171}
+button{background:var(--btn);color:var(--tx);border:0;border-radius:14px;font-size:18px;height:56px;touch-action:manipulation}
+button:active{background:var(--hi);color:#000;transform:scale(.96)}
+.row{display:grid;gap:10px;margin:10px 0}.c3{grid-template-columns:repeat(3,1fr)}.c4{grid-template-columns:repeat(4,1fr)}
+.pad{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;background:var(--card);padding:14px;border-radius:28px;margin:14px 0}
+.pad button{height:72px;font-size:24px}.pad .ok{background:var(--hi);color:#000;font-weight:700;border-radius:50%}
+.pw{background:#3a1d1d}
+details{background:var(--card);border-radius:14px;padding:12px;margin-top:14px}
+input{width:100%;padding:12px;border-radius:10px;border:1px solid #2c3446;background:var(--bg);color:var(--tx);font-size:16px;margin:6px 0;user-select:text}
+small{color:var(--mut);display:block;margin-top:6px;line-height:1.4}
+.tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}.tabs button{height:44px;font-size:16px}.tabs .on{background:var(--hi);color:#000;font-weight:700}
+#pc,#hl{display:none}.card{background:var(--card);border-radius:14px;padding:10px 12px;margin:8px 0;display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:14px}.card button{height:36px;font-size:13px;padding:0 10px}.bad{color:#f87171}.good{color:#4ade80}.pcb{width:100%}.row.c2{grid-template-columns:1fr 1fr}
+</style></head><body>
+<h1>📺 Remote <span id="st">not connected</span></h1>
+<div class="tabs" style="grid-template-columns:repeat(3,1fr)"><button id="tTv" class="on">📺 TV</button><button id="tPc">💻 PC</button><button id="tHl">🩺 Health</button></div>
+<div id="tv">
+<div class="row c3"><button class="pw" data-k="POWER">⏻</button><button data-k="HOME">🏠</button><button data-k="MUTE">🔇</button></div>
+<div class="pad">
+<span></span><button data-k="UP">▲</button><span></span>
+<button data-k="LEFT">◀</button><button class="ok" data-k="OK">OK</button><button data-k="RIGHT">▶</button>
+<span></span><button data-k="DOWN">▼</button><span></span></div>
+<div class="row c3"><button data-k="BACK">⮌</button><button data-k="HOME">⌂</button><button data-k="MENU">☰</button></div>
+<div class="row c4"><button data-k="REWIND">⏪</button><button data-k="PLAYPAUSE">⏯</button><button data-k="FF">⏩</button><button data-k="VOLUP">🔊+</button></div>
+<div class="row c4"><button data-k="PREV">⏮</button><button data-k="NEXT">⏭</button><button data-k="VOLDOWN">🔉−</button><button data-k="SLEEP">💤</button></div>
+<div class="row c3"><button data-a="netflix">Netflix</button><button data-a="youtube">YouTube</button><button data-a="prime">Prime</button>
+<button data-a="disney">Disney+</button><button data-a="hulu">Hulu</button><button data-a="spotify">Spotify</button></div>
+<div class="row" style="grid-template-columns:1fr auto"><input id="txt" placeholder="Type to TV…"><button id="send" style="height:48px;padding:0 16px;margin-top:6px">Send</button></div>
+</div>
+<div id="pc">
+<div class="row c2"><button class="pcb" data-p="wake">⚡ Wake PC</button><button class="pcb" data-p="keepawake" id="ka">☕ Keep this Mac awake</button></div>
+<div class="row c2"><button class="pcb" data-p="lock">🔒 Lock screen</button><button class="pcb pw" data-p="sleep">💤 Sleep Mac</button></div>
+<div class="row c3"><button data-p="vol" data-d="down">🔉−</button><button data-p="vol" data-d="mute">🔇</button><button data-p="vol" data-d="up">🔊+</button></div>
+<div class="row c3"><button data-pk="up">▲</button><button data-pk="enter">⏎</button><button data-pk="esc">esc</button>
+<button data-pk="left">◀</button><button data-pk="down">▼</button><button data-pk="right">▶</button></div>
+<div class="row c3" id="apps"></div>
+<div class="row" style="grid-template-columns:1fr auto"><input id="ptxt" placeholder="Type on computer…"><button id="psend" style="height:48px;padding:0 16px;margin-top:6px">Send</button></div>
+<label>Computer MAC (for Wake — Wi-Fi/Ethernet address of the PC to power on)<input id="mac" placeholder="aa:bb:cc:dd:ee:ff"></label>
+<button id="smac" style="width:100%;height:44px">Save MAC</button>
+<small>Wake works on a sleeping/off computer with Wake-on-LAN enabled in its BIOS/settings, and needs this bridge running on another always-on device (here, this Mac). A Mac cannot wake itself once fully off — use "Keep this Mac awake" instead.</small>
+</div>
+<div id="hl"><div id="gauges"></div><h3>Services</h3><div id="svcs"></div><h3>Top processes</h3><div id="procs"></div>
+<small id="alerts"></small><button id="ta" style="width:100%;height:44px;margin-top:8px">Send test alert</button></div>
+<details id="setup"><summary>Setup</summary>
+<label>Bridge URL<input id="bridge" placeholder="http://192.168.1.20:8788 or https://xxxx.trycloudflare.com"></label>
+<label>Fire TV IP<input id="ip" placeholder="192.168.1.50" inputmode="decimal"></label>
+<button id="save" style="width:100%;margin-top:8px;height:48px">Save &amp; connect</button>
+<small>1) Fire TV: Settings → My Fire TV → Developer Options → ADB debugging ON. 2) On a computer on your WiFi: <code>brew install android-platform-tools</code>, then <code>bun bridge/server.ts</code>. 3) Paste the bridge address and the TV's IP (Settings → Network) above. Phone on https needs an https bridge address (e.g. <code>cloudflared tunnel --url http://localhost:8788</code>), or open the bridge's LAN address directly.</small>
+</details>
+<script>
+const $=s=>document.querySelector(s),L=k=>{try{return localStorage.getItem(k)||""}catch{return""}},S=(k,v)=>{try{localStorage.setItem(k,v)}catch{}};
+$("#bridge").value=L("bridge");$("#ip").value=L("ip");
+if(!L("bridge"))$("#setup").open=true;
+const st=(t,c)=>{$("#st").textContent=t;$("#st").className=c||""};
+const H=new URLSearchParams(location.hash.slice(1));
+if(H.get("b")){S("bridge",H.get("b"));if(H.get("t"))S("tok",H.get("t"));history.replaceState(null,"",location.pathname)}
+let hlT;const tab=n=>{clearInterval(hlT);if(n=="hl"){hlHealth();hlT=setInterval(hlHealth,10000)}$("#hl").style.display=n=="hl"?"block":"none";$("#tHl").className=n=="hl"?"on":"";$("#tv").style.display=n=="tv"?"":"none";$("#pc").style.display=n=="pc"?"block":"none";$("#tTv").className=n=="tv"?"on":"";$("#tPc").className=n=="pc"?"on":"";S("tab",n);if(n=="pc")pcStatus()};
+$("#tTv").onclick=()=>tab("tv");$("#tPc").onclick=()=>tab("pc");$("#tHl").onclick=()=>tab("hl");
+async function hlHealth(){const j=await pcApi("health");if(!j)return;const g=(n,v,t,inv)=>`<div class="card"><span>${n}</span><b class="${(inv?v<t:v>t)?"bad":"good"}">${v}%</b></div>`;
+  $("#gauges").innerHTML=g("CPU load",j.cpu,j.th.cpu)+g("Memory",j.mem,j.th.mem)+g("Disk",j.disk,j.th.disk)+(j.batt==null?"":g("Battery"+(j.charging?" ⚡":""),j.batt,j.th.batt,1));
+  $("#svcs").innerHTML=j.services.map(s=>`<div class="card"><span class="${s.pid?"good":s.loaded?"bad":""}">${s.pid?"●":"○"} ${s.label.replace(/^com\./,"")}</span><span><button data-sv="start" data-l="${s.label}">▶</button> <button data-sv="restart" data-l="${s.label}">↻</button> <button data-sv="stop" data-l="${s.label}">■</button></span></div>`).join("")||"<small>No user LaunchAgents found.</small>";
+  $("#procs").innerHTML=j.procs.map(p=>`<div class="card"><span>${p.name} <small style="display:inline">${p.cpu}% cpu · ${p.mem}% mem</small></span><button data-kill="${p.pid}" class="pw">kill</button></div>`).join("");
+  $("#alerts").textContent=`Alerts when CPU/mem >${j.th.cpu}/${j.th.mem}% (3 min), disk >${j.th.disk}%, battery <${j.th.batt}%, or a service dies. Install the free ntfy app and subscribe to topic: ${j.topic}`}
+$("#ta").onclick=()=>pcApi("testalert",{});
+async function pcApi(a,body){const b=L("bridge").replace(/\/$/,"");if(!b){$("#setup").open=true;return}
+  try{const r=await fetch(b+"/pc/"+a,{method:body?"POST":"GET",headers:{"content-type":"application/json","x-token":L("tok")},body:body?JSON.stringify(body):undefined});
+    const j=await r.json();if(!r.ok)throw new Error(j.error);st("connected","ok");return j}catch(e){st(String(e.message||e).slice(0,40),"bad");return null}}
+async function pcStatus(){const j=await pcApi("status");if(!j)return;$("#ka").textContent=j.awake?"☕ Awake: ON":"☕ Keep this Mac awake";$("#mac").value=j.mac||"";
+  $("#apps").innerHTML=j.apps.map(a=>`<button data-po="${a}" style="font-size:14px">${a}</button>`).join("")}
+async function api(p,body){
+  const b=L("bridge").replace(/\/$/,"");if(!b){$("#setup").open=true;return}
+  try{const r=await fetch(b+p,{method:body?"POST":"GET",headers:{"content-type":"application/json"},body:body?JSON.stringify({ip:L("ip"),...body}):undefined});
+    const j=await r.json();if(!r.ok)throw new Error(j.error);st("connected","ok");return j}
+  catch(e){st("bridge unreachable","bad");return null}
+}
+document.addEventListener("click",e=>{const t=e.target.closest("button");if(!t)return;
+  if(navigator.vibrate)navigator.vibrate(12);
+  if(t.dataset.p){pcApi(t.dataset.p,{dir:t.dataset.d}).then(j=>{if(j&&t.dataset.p=="keepawake")pcStatus()});return}
+  if(t.dataset.sv){pcApi("svc",{label:t.dataset.l,op:t.dataset.sv}).then(()=>setTimeout(hlHealth,1500));return}
+  if(t.dataset.kill){if(confirm("Kill process "+t.dataset.kill+"?"))pcApi("kill",{pid:t.dataset.kill}).then(()=>setTimeout(hlHealth,800));return}
+  if(t.dataset.pk){pcApi("key",{key:t.dataset.pk});return}if(t.dataset.po){pcApi("open",{app:t.dataset.po});return}
+  if(t.dataset.k)api("/key",{key:t.dataset.k});else if(t.dataset.a)api("/launch",{app:t.dataset.a})});
+$("#send").onclick=async()=>{await api("/text",{text:$("#txt").value});$("#txt").value=""};
+$("#psend").onclick=async()=>{await pcApi("type",{text:$("#ptxt").value});$("#ptxt").value=""};
+$("#smac").onclick=()=>pcApi("config",{mac:$("#mac").value.trim()});
+$("#save").onclick=async()=>{S("bridge",$("#bridge").value.trim());S("ip",$("#ip").value.trim());
+  const j=await api("/connect",{});if(j){st(j.result.slice(0,40)||"connected","ok");$("#setup").open=false}};
+if(L("tab")=="pc"||L("tab")=="hl")tab(L("tab"));else if(L("bridge"))api("/health");
+</script></body></html>

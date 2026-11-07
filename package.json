@@ -1,0 +1,1 @@
+{"name":"firetv-remote","private":true,"type":"module","scripts":{"start":"bun bridge/server.ts"},"dependencies":{"qrcode-terminal":"^0.12.0"}}

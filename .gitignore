@@ -1,0 +1,5 @@
+logs/
+node_modules/
+.pc-token
+pc.json
+.ntfy-topic
