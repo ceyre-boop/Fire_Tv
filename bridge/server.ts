@@ -41,7 +41,7 @@ async function health() {
   });
   const ps = (await run(["ps", "-U", String(UID_), "-Ao", "pid=,pcpu=,pmem=,comm="])).split("\n").map((l) => { const m = l.trim().match(/^(\d+)\s+([\d.]+)\s+([\d.]+)\s+(.*)$/); return m ? { pid: +m[1], cpu: +m[2], mem: +m[3], name: m[4].split("/").pop()! } : null; }).filter(Boolean) as any[];
   const procs = ps.sort((a, b) => b.cpu - a.cpu).slice(0, 8);
-  return { cpu, mem, disk, batt, charging, services, procs, th: TH, topic: TOPIC };
+  return { cpu, mem, disk, batt, charging, services, procs, managed: await managedState(), pinned: procCfg().pinned, th: TH, topic: TOPIC };
 }
 const alertState = new Map<string, number>(); const strikes = new Map<string, number>();
 // Alert budget: ntfy's free tier allows ~250 messages a day and one message per failing service used it all up.
@@ -104,6 +104,36 @@ async function svcOp(l: string, op: string) {
   if (op === "start") { const o = await run(["launchctl", "bootstrap", `gui/${UID_}`, `${LA}/${l}.plist`]); return { out: o + (await run(["launchctl", "kickstart", t])) }; }
   throw new Error("bad op");
 }
+
+// ---- Pinned + managed processes (processes.json). Long-running things that are not launchd services, e.g. live-agent.
+// Clients send only an id; the command lines come from this file, never from the request.
+type Managed = { id: string; name: string; cwd: string; start: string[]; stop?: string[]; match: string };
+const PROCS_FILE = new URL("../processes.json", import.meta.url).pathname;
+const procCfg = (): { pinned: string[]; managed: Managed[] } => { try { const j = JSON.parse(readFileSync(PROCS_FILE, "utf8")); return { pinned: j.pinned ?? [], managed: j.managed ?? [] }; } catch { return { pinned: [], managed: [] }; } };
+const expand = (p: string) => p.replace(/^~/, homedir());
+async function managedState() {
+  const out = [];
+  for (const m of procCfg().managed) {
+    const pids = (await run(["pgrep", "-f", m.match])).split("\n").map(Number).filter((n) => n && n !== process.pid);
+    let up = 0; if (pids[0]) { const e = (await run(["ps", "-o", "etime=", "-p", String(pids[0])])).trim().match(/^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)$/); if (e) up = (+(e[1] ?? 0)) * 86400 + (+(e[2] ?? 0)) * 3600 + (+e[3]) * 60 + (+e[4]); }
+    out.push({ id: m.id, name: m.name, state: pids.length ? (up >= 30 ? "running" : "starting") : "stopped", up });
+  }
+  return out;
+}
+async function procOp(id: string, op: string) {
+  const m = procCfg().managed.find((x) => x.id === id); if (!m) throw new Error("unknown process");
+  const job = "firetv.proc." + m.id;
+  const stop = async () => { if (m.stop) await run(["/bin/sh", "-c", `cd ${JSON.stringify(expand(m.cwd))} && ${m.stop.map((x) => JSON.stringify(x)).join(" ")}`]); await run(["launchctl", "remove", job]); };
+  const start = async () => {
+    const log = `${new URL("../logs/", import.meta.url).pathname}proc-${m.id}.log`;
+    // launchctl submit runs it outside the bridge's own process tree, so restarting the bridge does not kill it
+    await run(["launchctl", "submit", "-l", job, "-o", log, "-e", log, "--", "/bin/sh", "-c", `cd ${JSON.stringify(expand(m.cwd))} && exec ${m.start.map((a) => JSON.stringify(a)).join(" ")}`]);
+  };
+  if (op === "stop") { await stop(); return { ok: true }; }
+  if (op === "start") { if ((await managedState()).find((x) => x.id === id)?.state !== "stopped") return { ok: true, already: true }; await start(); return { ok: true }; }
+  if (op === "restart") { await stop(); await Bun.sleep(800); await start(); return { ok: true }; }
+  throw new Error("bad op");
+}
 async function pc(action: string, b: Record<string, string>) {
   switch (action) {
     case "status": return { awake: !!awake, mac: cfg.mac ?? null, apps: PC_APPS };
@@ -111,6 +141,7 @@ async function pc(action: string, b: Record<string, string>) {
     case "wake": if (!cfg.mac) throw new Error("set the computer's MAC first"); wol(cfg.mac); return { sent: cfg.mac };
     case "health": return await health();
     case "svc": return await svcOp(String(b.label), String(b.op));
+    case "proc": return await procOp(String(b.id), String(b.op));
     case "svcs": {   // a whole group at once
       const ls = (Array.isArray((b as any).labels) ? (b as any).labels : []).map(String).slice(0, 80);
       const out: Record<string, string> = {};

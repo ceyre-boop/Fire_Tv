@@ -1,0 +1,23 @@
+{
+  "pinned": [
+    "com.taboost.rng-ingest",
+    "com.taboost.recruit-nightly"
+  ],
+  "managed": [
+    {
+      "id": "live-agent",
+      "name": "live-agent",
+      "cwd": "~/live-agent",
+      "start": [
+        "sh",
+        "scripts/start.sh"
+      ],
+      "stop": [
+        "node",
+        "src/daemon.ts",
+        "stop"
+      ],
+      "match": "src/daemon.ts"
+    }
+  ]
+}

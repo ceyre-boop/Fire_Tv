@@ -197,14 +197,19 @@ let svView=L("svView")||"all",svData=[],svOpen=new Set(JSON.parse(L("svOpen")||"
 const svName=l=>l.replace(/^(?:com|ai)\./,"").replace(/^sh\./,""),svGroup=l=>{const n=svName(l);return n.split(/[.\-_]/)[0]||n};
 const svOrder={running:0,starting:1,failing:2,idle:3,off:4},dur=s=>s<90?s+"s":s<5400?Math.round(s/60)+"m":s<172800?Math.round(s/3600)+"h":Math.round(s/86400)+"d";
 const svTxt=s=>s.state=="running"?"running "+dur(s.up):s.state=="starting"?"starting…":s.state=="failing"?"failing (exit "+s.exit+")":s.state=="idle"?"idle":"not loaded";
+let svManaged=[],svPinned=[];
 function renderSvcs(list){svData=list||svData;const g={};for(const s of svData){if(svView=="run"&&s.state!="running"&&s.state!="starting")continue;(g[svGroup(s.label)]??=[]).push(s)}
   const names=Object.keys(g).sort((a,b)=>(g[b].filter(x=>x.state=="running").length>0)-(g[a].filter(x=>x.state=="running").length>0)||a.localeCompare(b));
   $("#svAll").className=svView=="all"?"on":"";$("#svRun").className=svView=="run"?"on":"";
-  $("#svcs").innerHTML=names.map(n=>{const m=g[n].sort((a,b)=>svOrder[a.state]-svOrder[b.state]||a.label.localeCompare(b.label)),run=m.filter(x=>x.state=="running").length,open=svOpen.has(n),ls=m.map(x=>x.label).join(",");
+  const pinRows=[...svManaged.map(p=>({t:"p",k:p.id,name:p.name,state:p.state,up:p.up})),...svPinned.map(l=>svData.find(s=>s.label==l)).filter(Boolean).map(s=>({t:"s",k:s.label,name:svName(s.label),state:s.state,up:s.up,exit:s.exit}))];
+  const pinHtml=pinRows.length?`<div class="sg"><div class="sgh"><span class="gn">★ Pinned</span></div><div class="card">${pinRows.map(r=>{const on=r.state=="running"||r.state=="starting",att=r.t=="p"?`data-pr="${r.k}"`:`data-l="${r.k}"`,sv=r.t=="p"?"data-pr":"data-sv",acts=on?`<button class="mini" ${sv=="data-pr"?`data-pr="${r.k}" data-po2="restart"`:`data-sv="restart" data-l="${r.k}"`}>Restart</button><button class="mini warn" ${sv=="data-pr"?`data-pr="${r.k}" data-po2="stop"`:`data-sv="stop" data-l="${r.k}"`}>Stop</button>`:`<button class="mini" ${sv=="data-pr"?`data-pr="${r.k}" data-po2="start"`:`data-sv="start" data-l="${r.k}"`}>Start</button>`;
+    return `<div class="item"><span class="dot ${r.state=="running"?"up":r.state=="starting"?"warm":r.state=="failing"?"down":r.state=="idle"?"idle":""}"></span><span class="nm">${r.name}<span class="sst">${r.t=="p"?(r.state=="running"?"running "+dur(r.up):r.state):svTxt(r)}</span></span><span class="acts">${acts}</span></div>`}).join("")}</div></div>`:"";
+  $("#svcs").innerHTML=pinHtml+names.map(n=>{const m=g[n].sort((a,b)=>svOrder[a.state]-svOrder[b.state]||a.label.localeCompare(b.label)),run=m.filter(x=>x.state=="running").length,open=svOpen.has(n),ls=m.map(x=>x.label).join(",");
     return `<div class="sg"><div class="sgh"><span class="gn" data-gt="${n}">${open?"▾":"▸"} ${n} <span class="gc">${run}/${m.length} running</span></span><button class="mini" data-gs="start" data-ls="${ls}">Start all</button><button class="mini" data-gs="restart" data-ls="${ls}">Restart all</button><button class="mini warn" data-gs="stop" data-ls="${ls}">Stop all</button></div>`+
       (open?`<div class="card">${m.map(s=>`<div class="item"><span class="dot ${s.state=="running"?"up":s.state=="starting"?"warm":s.state=="failing"?"down":s.state=="idle"?"idle":""}"></span><span class="nm">${svName(s.label)}<span class="sst">${svTxt(s)}</span></span><span class="acts">${s.state=="running"||s.state=="starting"?`<button class="mini" data-sv="restart" data-l="${s.label}">Restart</button><button class="mini warn" data-sv="stop" data-l="${s.label}">Stop</button>`:`<button class="mini" data-sv="start" data-l="${s.label}">Start</button>`}</span></div>`).join("")}</div>`:"")+`</div>`}).join("")||'<div class="card"><div class="item"><span class="nm">nothing running</span></div></div>'}
 $("#svAll").onclick=()=>{svView="all";S("svView",svView);renderSvcs()};$("#svRun").onclick=()=>{svView="run";S("svView",svView);renderSvcs()};
-document.addEventListener("click",e=>{const t=e.target.closest("[data-gt],[data-gs]");if(!t)return;
+document.addEventListener("click",e=>{const pb=e.target.closest("[data-po2]");if(pb){toast((pb.dataset.po2=="stop"?"Stopping ":pb.dataset.po2=="start"?"Starting ":"Restarting ")+pb.dataset.pr+"…");pcApi("proc",{id:pb.dataset.pr,op:pb.dataset.po2}).then(j=>{if(j)toast("Done");setTimeout(hlHealth,1500);setTimeout(hlHealth,6000)});return}
+  const t=e.target.closest("[data-gt],[data-gs]");if(!t)return;
   if(t.dataset.gt){const n=t.dataset.gt;svOpen.has(n)?svOpen.delete(n):svOpen.add(n);S("svOpen",JSON.stringify([...svOpen]));renderSvcs();return}
   const op=t.dataset.gs,ls=t.dataset.ls.split(",");if(op=="stop"&&!confirm("Stop "+ls.length+" services?"))return;
   toast((op=="start"?"Starting ":op=="stop"?"Stopping ":"Restarting ")+ls.length+"…");pcApi("svcs",{labels:ls,op}).then(j=>{if(j)toast("Done");setTimeout(hlHealth,1500);setTimeout(hlHealth,6000)})});
@@ -213,7 +218,7 @@ $("#tTv").onclick=()=>tab("tv");$("#tPc").onclick=()=>tab("pc");$("#tHl").onclic
 async function hlHealth(){const j=await pcApi("health");if(!j)return;
   const g=(n,v,t,inv)=>{const bad=inv?v<t:v>t;return `<div class="gauge"><div class="gh"><span>${n}</span><b class="${bad?"bad":""}">${v}%</b></div><div class="bar"><i class="${bad?"bad":""}" style="width:${Math.min(100,v)}%"></i></div></div>`};
   $("#gauges").innerHTML=g("CPU load",j.cpu,j.th.cpu)+g("Memory",j.mem,j.th.mem)+g("Disk",j.disk,j.th.disk)+(j.batt==null?"":g("Battery"+(j.charging?" · charging":""),j.batt,j.th.batt,1));
-  renderSvcs(j.services);
+  svManaged=j.managed||[];svPinned=j.pinned||[];renderSvcs(j.services);
   $("#procs").innerHTML=j.procs.map(p=>`<div class="item"><span class="nm">${p.name}<em>${p.cpu}% cpu · ${p.mem}% mem</em></span><span class="acts"><button class="mini warn" data-kill="${p.pid}">Kill</button></span></div>`).join("");
   $("#alerts").textContent=`Alerts when CPU/mem >${j.th.cpu}/${j.th.mem}% (3 min), disk >${j.th.disk}%, battery <${j.th.batt}%, or a service dies. Install the free ntfy app and subscribe to topic: ${j.topic}`}
 $("#ta").onclick=()=>pcApi("testalert",{});
