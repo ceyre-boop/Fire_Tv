@@ -130,7 +130,7 @@ if(H.get("b")){S("bridge",H.get("b"));if(H.get("t"))S("tok",H.get("t"));history.
 let scOn=0,dragMode=0;
 function scNote(t){const n=$("#scNote");n.textContent=t;n.style.display=t?"":"none"}
 async function scStart(){if(scOn)return;
-  if(location.protocol=="https:"){scNote("Screen control is only offered over Tailscale, not the public link. With Tailscale on, open http://100.111.34.78:8788 on this phone.");return}
+  if(location.protocol=="https:"){{const n=$("#scNote");n.textContent="Screen control only works over Tailscale, not this public link. Turn Tailscale on, then: ";const a=document.createElement("a");a.textContent="open the Tailscale version";a.style.color="var(--tx)";a.href="http://100.111.34.78:8788/#b="+encodeURIComponent("http://100.111.34.78:8788")+"&t="+encodeURIComponent(L("tok"));n.appendChild(a);n.style.display="";return}}
   scOn=1;const b=L("bridge").replace(/\/$/,"");
   while($("#sc").style.display!="none"&&!document.hidden){
     try{const r=await fetch(b+"/pc/screen",{headers:{"x-token":L("tok")}});

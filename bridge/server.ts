@@ -102,7 +102,7 @@ async function pc(action: string, b: Record<string, string>) {
 const tailnetOnly = (req: Request) => {
   if (req.headers.get("cf-connecting-ip") || req.headers.get("cf-ray")) return false;   // arrived through the cloudflare tunnel
   const h = new URL(req.url).hostname;
-  return /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(h) || h.endsWith(".ts.net") || h === "localhost" || h === "127.0.0.1";
+  return /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(h) || h === "localhost" || h === "127.0.0.1";
 };
 let dims: [number, number] | null = null;
 async function dispSize(): Promise<[number, number]> {
