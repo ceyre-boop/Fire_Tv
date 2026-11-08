@@ -132,7 +132,7 @@ async function hlHealth(){const j=await pcApi("health");if(!j)return;
 $("#ta").onclick=()=>pcApi("testalert",{});
 async function pcApi(a,body){const b=L("bridge").replace(/\/$/,"");if(!b){$("#setup").open=true;return}
   try{const r=await fetch(b+"/pc/"+a,{method:body?"POST":"GET",headers:{"content-type":"application/json","x-token":L("tok")},body:body?JSON.stringify(body):undefined});
-    const j=await r.json();if(!r.ok)throw new Error(j.error);st("connected","ok");return j}catch(e){st(String(e.message||e).slice(0,40),"bad");return null}}
+    if(r.status==401){askPass();throw new Error("passcode needed")}const j=await r.json();if(!r.ok)throw new Error(j.error);st("connected","ok");return j}catch(e){st(String(e.message||e).slice(0,40),"bad");return null}}
 async function pcStatus(){const j=await pcApi("status");if(!j)return;$("#ka").textContent=j.awake?"Awake · tap to stop":"Keep this Mac awake";$("#mac").value=j.mac||"";
   $("#apps").innerHTML=j.apps.map(a=>`<button class="sm" data-po="${a}">${a}</button>`).join("")}
 async function api(p,body){
@@ -199,4 +199,9 @@ $("#find").onclick=async()=>{const e=$("#tvs");e.innerHTML='<i class="dot"></i>S
   j.tvConnected?(toast("Found TV at "+j.tv),tvStatus()):(e.innerHTML='<i class="dot down"></i>TV not found',toast("No TV found - is it on, same WiFi, ADB on?",1))};
 setInterval(()=>{if($("#tv").style.display!=="none"&&!document.hidden)tvStatus()},10000);setTimeout(tvStatus,300);
 if(L("tab")=="pc"||L("tab")=="hl")tab(L("tab"));else if(L("bridge"))api("/health");
-</script></body></html>
+</script><div id="pass" style="display:none;position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.75);place-items:center"><form id="passf" autocomplete="on" style="background:#262624;padding:22px;border-radius:16px;width:min(320px,86vw);color:#fff;font:16px system-ui"><div style="margin-bottom:10px">Enter the Remote passcode</div><input name="username" value="remote" autocomplete="username" style="display:none"><input id="passin" name="password" type="password" autocomplete="current-password" placeholder="passcode" style="width:100%;box-sizing:border-box;padding:12px;border-radius:10px;border:1px solid #555;background:#1b1b1a;color:#fff;font:inherit"><button style="margin-top:12px;width:100%;padding:12px;border:0;border-radius:10px;background:#d97757;color:#fff;font:inherit">Save &amp; connect</button><div style="margin-top:8px;font-size:12px;opacity:.6">Your phone can save it to Passwords. Find it on the Mac: cat ~/Fire_Tv/.pc-token</div></form></div>
+<script>
+function askPass(){const p=document.getElementById("pass");p.style.display="grid";setTimeout(()=>document.getElementById("passin").focus(),50)}
+document.getElementById("passf").onsubmit=e=>{e.preventDefault();const v=document.getElementById("passin").value.trim();if(!v)return;try{localStorage.setItem("tok",v)}catch{}document.getElementById("pass").style.display="none";location.reload()};
+</script>
+</body></html>
