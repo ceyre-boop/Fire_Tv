@@ -67,6 +67,10 @@ small,.note{color:var(--mut);display:block;margin:10px 4px 0;font-size:12.5px;li
 #sc.full #scBox{width:auto;line-height:0}
 #sc.full #scImg{width:min(90vw,calc((100dvh - 120px)*1.54))!important;height:auto!important;border-radius:18px!important;box-shadow:0 0 0 1px #444,0 0 0 6px #111,0 0 0 7px #333,0 10px 40px rgba(0,0,0,.8);background:#050505!important;min-height:0!important}
 #sc.full #scNote{position:absolute;top:44px;left:5vw;right:5vw;text-align:center;font-size:13px;z-index:2;background:rgba(30,30,28,.92)}
+#scZoom{transform-origin:50% 50%;will-change:transform}
+#sc.full #scBox{overflow:hidden;border-radius:18px;box-shadow:0 0 0 1px #444,0 0 0 6px #111,0 0 0 7px #333,0 10px 40px rgba(0,0,0,.8)}
+#sc.full #scImg{box-shadow:none!important;border-radius:0!important}
+#sc.full.rot #scZoom{position:absolute;inset:0}
 #sc.full.rot{--lw:min(calc(100dvh - 140px),calc(90vw*1.54))}
 #sc.full.rot #scBox{width:calc(var(--lw)/1.54);height:var(--lw)}
 #sc.full.rot #scImg{position:absolute;top:50%;left:50%;width:var(--lw)!important;transform:translate(-50%,-50%) rotate(90deg)}
@@ -120,8 +124,8 @@ code{font-size:12px;background:var(--btn);padding:1px 5px;border-radius:5px}
 <button id="smac" style="width:100%;height:46px">Save</button></div>
 <small>Needs Wake-on-LAN enabled on that computer, and this bridge running on another always-on device. A Mac can't wake itself once fully off &mdash; use &ldquo;Keep this Mac awake&rdquo; instead.</small>
 </div>
-<div id="sc" style="display:none"><div id="scX">✕</div><div id="scNote" class="card" style="display:none"></div><div id="scBox" style="position:relative;touch-action:none;user-select:none;-webkit-user-select:none"><img id="scImg" alt="" draggable="false" style="width:100%;display:block;border-radius:12px;min-height:120px;background:#111"></div>
-<div id="scBar"><input id="scTxt" placeholder="type on the Mac…" autocapitalize="off" autocorrect="off"><button class="sm" id="scSend">Send</button><button class="sm" data-pk="enter">⏎</button><button class="sm" data-pk="esc">Esc</button><button class="sm" data-pk="tab">Tab</button><button class="sm" id="scMode">Scroll</button><button class="sm" id="scRot">Rotate</button></div>
+<div id="sc" style="display:none"><div id="scX">✕</div><div id="scNote" class="card" style="display:none"></div><div id="scBox" style="position:relative;touch-action:none;user-select:none;-webkit-user-select:none"><div id="scZoom"><img id="scImg" alt="" draggable="false" style="width:100%;display:block;border-radius:12px;min-height:120px;background:#111"></div></div>
+<div id="scBar"><input id="scTxt" placeholder="type on the Mac…" autocapitalize="off" autocorrect="off"><button class="sm" id="scSend">Send</button><button class="sm" data-pk="enter">⏎</button><button class="sm" data-pk="esc">Esc</button><button class="sm" data-pk="tab">Tab</button><button class="sm" id="scMode">Scroll</button><button class="sm" id="scRot">Rotate</button><button class="sm" id="scOne" style="display:none">1×</button></div>
 <div id="scDbg"></div></div>
 <div id="hl"><div class="card" id="gauges"></div><h3>Services</h3><div class="chips"><button id="svAll" class="on">All</button><button id="svRun">Running</button></div><div id="svcs"></div><h3>Top processes</h3><div class="card" id="procs"></div>
 <small id="alerts"></small><button id="ta" style="width:100%;height:46px;margin-top:14px">Send test alert</button></div>
@@ -161,22 +165,32 @@ $("#scX").onclick=()=>tab("tv");$("#scRot").onclick=()=>{rot=!rot;S("scRot",rot?
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&$("#sc").style.display=="block")scStart()});
 $("#scMode").onclick=()=>{dragMode=!dragMode;$("#scMode").textContent=dragMode?"Drag":"Scroll"};
 $("#scSend").onclick=()=>{const v=$("#scTxt").value;if(v){pcApi("type",{text:v});$("#scTxt").value=""}};
-(()=>{const box=$("#scBox");let d=null,lastTap=0,lastX=0,lastY=0,sc=0,scT=0;
+(()=>{const box=$("#scBox"),zl=$("#scZoom"),ptrs=new Map();let d=null,lastTap=0,sc=0,scT=0,Z=1,TX=0,TY=0,pin=null;
   const cl=v=>Math.min(1,Math.max(0,v));
-  const fr=e=>{const img=$("#scImg"),r=img.getBoundingClientRect();
-    if(!rot)return{x:cl((e.clientX-r.left)/r.width),y:cl((e.clientY-r.top)/r.height)};
-    const dx=e.clientX-(r.left+r.width/2),dy=e.clientY-(r.top+r.height/2);   // image is turned 90deg clockwise
-    return{x:cl(dy/img.offsetWidth+.5),y:cl(-dx/img.offsetHeight+.5)}};
+  const lim=()=>{const mx=(Z-1)*box.offsetWidth/2,my=(Z-1)*box.offsetHeight/2;TX=Math.min(mx,Math.max(-mx,TX));TY=Math.min(my,Math.max(-my,TY))};
+  const paint=()=>{zl.style.transform=`translate(${TX}px,${TY}px) scale(${Z})`;$("#scOne").style.display=Z>1.02?"":"none"};
+  $("#scOne").onclick=()=>{Z=1;TX=0;TY=0;paint()};
+  // screen point -> fraction of the Mac screen (undo zoom, then undo rotation)
+  const fr=e=>{const r=box.getBoundingClientRect(),cx=r.left+r.width/2,cy=r.top+r.height/2,lx=(e.clientX-cx-TX)/Z,ly=(e.clientY-cy-TY)/Z,W=box.offsetWidth,H=box.offsetHeight;
+    return rot?{x:cl(ly/H+.5),y:cl(-lx/W+.5)}:{x:cl(lx/W+.5),y:cl(ly/H+.5)}};
   const send=(a,b)=>pcApi(a,b).then(()=>{});
-  box.onpointerdown=e=>{box.setPointerCapture(e.pointerId);d={sx:e.clientX,sy:e.clientY,t:Date.now(),moved:0,long:0,p:fr(e)};
+  const two=()=>{const [p,q]=[...ptrs.values()];return{dist:Math.hypot(p.x-q.x,p.y-q.y)||1,mx:(p.x+q.x)/2,my:(p.y+q.y)/2}};
+  box.onpointerdown=e=>{box.setPointerCapture(e.pointerId);ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    if(ptrs.size==2){if(d){clearTimeout(d.lt);d=null}const t=two(),r=box.getBoundingClientRect();pin={d0:t.dist,Z0:Z,lx:(t.mx-(r.left+r.width/2)-TX)/Z,ly:(t.my-(r.top+r.height/2)-TY)/Z,cx:r.left+r.width/2,cy:r.top+r.height/2};return}
+    if(ptrs.size>2)return;
+    d={sx:e.clientX,sy:e.clientY,t:Date.now(),moved:0,long:0,p:fr(e)};
     d.lt=setTimeout(()=>{if(d&&!d.moved){d.long=1;if(navigator.vibrate)navigator.vibrate(20);send("tap",{fx:d.p.x,fy:d.p.y,kind:"right"})}},550)};
-  box.onpointermove=e=>{if(!d)return;const dx=e.clientX-d.sx,dy=e.clientY-d.sy;if(Math.abs(dx)+Math.abs(dy)>8){d.moved=1;clearTimeout(d.lt)}
+  box.onpointermove=e=>{if(!ptrs.has(e.pointerId))return;ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    if(pin&&ptrs.size>=2){const t=two();Z=Math.min(5,Math.max(1,pin.Z0*t.dist/pin.d0));TX=t.mx-pin.cx-Z*pin.lx;TY=t.my-pin.cy-Z*pin.ly;if(Z<1.02){Z=1;TX=0;TY=0}lim();paint();return}
+    if(!d)return;const dx=e.clientX-d.sx,dy=e.clientY-d.sy;if(Math.abs(dx)+Math.abs(dy)>8){d.moved=1;clearTimeout(d.lt)}
     if(d.moved&&!dragMode){const cur=rot?-e.clientX:e.clientY;sc+=cur-(d.ly??(rot?-d.sx:d.sy));d.ly=cur;const now=Date.now();if(now-scT>90&&Math.abs(sc)>1){scT=now;send("scroll",{dy:Math.round(sc*2)});sc=0}}};
-  box.onpointerup=e=>{if(!d)return;clearTimeout(d.lt);const p=fr(e);
-    if(d.moved&&dragMode)send("drag",{x1:d.p.x,y1:d.p.y,x2:p.x,y2:p.y});
-    else if(!d.moved&&!d.long){const now=Date.now(),dbl=now-lastTap<320;lastTap=dbl?0:now;send("tap",{fx:p.x,fy:p.y,kind:dbl?"double":"click"})}
+  const up=(e,cancel)=>{ptrs.delete(e.pointerId);
+    if(pin){if(ptrs.size<2)pin=null;d=null;return}   // a pinch never counts as a tap
+    if(!d)return;clearTimeout(d.lt);const p=fr(e);
+    if(!cancel){if(d.moved&&dragMode)send("drag",{x1:d.p.x,y1:d.p.y,x2:p.x,y2:p.y});
+      else if(!d.moved&&!d.long){const now=Date.now(),dbl=now-lastTap<320;lastTap=dbl?0:now;send("tap",{fx:p.x,fy:p.y,kind:dbl?"double":"click"})}}
     d=null};
-  box.onpointercancel=()=>{if(d)clearTimeout(d.lt);d=null}})();
+  box.onpointerup=e=>up(e,false);box.onpointercancel=e=>up(e,true)})();
 
 // ---- Services: grouped, with PROVEN status (green = alive 30s+; amber = just started; red = failing; hollow = idle/scheduled) ----
 let svView=L("svView")||"all",svData=[],svOpen=new Set(JSON.parse(L("svOpen")||"[]"));
