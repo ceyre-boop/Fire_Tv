@@ -97,7 +97,7 @@ const PORT = Number(process.env.PORT ?? 8788);
 const SITE = process.env.SITE_URL ?? "https://web-woad-eight-46.vercel.app";
 const KEYS: Record<string, number> = {
   UP: 19, DOWN: 20, LEFT: 21, RIGHT: 22, OK: 23, BACK: 4, HOME: 3, MENU: 82,
-  PLAYPAUSE: 85, REWIND: 89, FF: 90, NEXT: 87, PREV: 88,
+  NOOP: 0, PLAYPAUSE: 85, REWIND: 89, FF: 90, NEXT: 87, PREV: 88,
   VOLUP: 24, VOLDOWN: 25, MUTE: 164, POWER: 26, SLEEP: 223, WAKE: 224,
 };
 const APPS: Record<string, string> = {
@@ -165,18 +165,27 @@ async function check() {
 let mode: "fast" | "slow" = "slow", fastSock: Socket | null = null, fastPort = 0, fastBusy: Promise<unknown> = Promise.resolve();
 let bench: Record<string, unknown> = {};
 const dev = () => `${tv}:5555`;
+// monkey exits when its client disconnects, so every (re)connect starts a fresh server and proves it answers before we trust it.
 async function startFast(): Promise<boolean> {
   try {
-    if (!(await adb(["-s", dev(), "shell", "ps -A | grep -c com.android.commands.monkey"])).trim().match(/^[1-9]/)) {
-      Bun.spawn(["adb", "-s", dev(), "shell", "nohup monkey --port 1080 </dev/null >/dev/null 2>&1 &"], { stdout: "ignore", stderr: "ignore" });
-      await new Promise((r) => setTimeout(r, 3500));
-    }
+    fastSock?.destroy(); fastSock = null;
+    await adb(["-s", dev(), "shell", "ps -A | grep com.android.commands.monkey | awk '{print $2}' | xargs kill"]);
+    Bun.spawn(["adb", "-s", dev(), "shell", "nohup monkey --port 1080 </dev/null >/dev/null 2>&1 &"], { stdout: "ignore", stderr: "ignore" });
     fastPort = Number((await adb(["-s", dev(), "forward", "tcp:0", "tcp:1080"])).trim());
     if (!fastPort) return false;
-    fastSock?.destroy();
-    fastSock = sock(fastPort, "127.0.0.1"); fastSock.setNoDelay(true); fastSock.on("error", () => { fastSock = null; }); fastSock.on("close", () => { fastSock = null; });
-    await new Promise<void>((res, rej) => { fastSock!.once("connect", () => res()); fastSock!.once("error", rej); });
-    return true;
+    for (let i = 0; i < 10; i++) {
+      await new Promise((r) => setTimeout(r, 900));
+      const c = sock(fastPort, "127.0.0.1"); c.setNoDelay(true);
+      const ok = await new Promise<boolean>((res) => {
+        let buf = ""; const t = setTimeout(() => res(false), 4000);
+        c.on("error", () => { clearTimeout(t); res(false); });
+        c.on("data", (d) => { buf += d; if (buf.includes("\n")) { clearTimeout(t); res(buf.startsWith("OK")); } });
+        c.on("connect", () => c.write("press 0\n"));
+      });
+      if (ok) { fastSock = c; c.on("error", () => { fastSock = null; }); c.on("close", () => { fastSock = null; }); return true; }
+      c.destroy();
+    }
+    return false;
   } catch { return false; }
 }
 function fastCmd(c: string, timeout = 3000): Promise<string> {
@@ -195,13 +204,15 @@ async function runBench() {
   const out: Record<string, unknown> = { at: new Date().toISOString() };
   const slow: number[] = []; for (let i = 0; i < 3; i++) slow.push(await timeIt(() => adb(["-s", dev(), "shell", "input", "keyevent", "0"])));
   out.slowMedianMs = Math.round(median(slow));
-  if (await startFast()) {
+  if (fastSock || (await startFast())) {
     for (let attempt = 0; attempt < 3; attempt++) {   // the first presses after monkey boots are slow (JIT) - warm up, re-measure
       for (let i = 0; i < 3; i++) await fastCmd("press 0", 10000).catch(() => {});
       const fast: number[] = []; for (let i = 0; i < 10; i++) fast.push(await timeIt(() => fastCmd("press 0", 2000)).catch(() => 9999));
       out.fastMedianMs = Math.round(median(fast)); out.fastMaxMs = Math.round(Math.max(...fast)); out.attempts = attempt + 1;
       if ((out.fastMedianMs as number) < 400) break;
-      await new Promise((r) => setTimeout(r, 2000));
+      // monkey serves one client at a time and can hold a stale one: restart it on the TV and reconnect
+      await adb(["-s", dev(), "shell", "ps -A | grep com.android.commands.monkey | awk '{print $2}' | xargs kill"]);
+      await new Promise((r) => setTimeout(r, 1500)); await startFast();
     }
   }
   mode = typeof out.fastMedianMs === "number" && out.fastMedianMs < 400 && (out.fastMedianMs as number) < (out.slowMedianMs as number) ? "fast" : "slow";
@@ -212,14 +223,29 @@ async function pressKey(code: number) {
   if (mode === "fast") { try { const r = await fastCmd(`press ${code}`); if (r.startsWith("OK")) return r; } catch {} if (await startFast()) { try { return await fastCmd(`press ${code}`); } catch {} } mode = "slow"; }
   return adb(["-s", dev(), "shell", "input", "keyevent", String(code)]);
 }
+// Keep-warm: WiFi radios doze when idle (ping to the TV: ~67 ms avg at 1 pkt/s vs ~19 ms at 10 pkt/s). While a remote page is active,
+// poke the TV 10x/s so its radio stays awake and the next key press doesn't pay the wake-up cost.
+let lastActive = 0; const warm = createSocket("udp4");
+setInterval(() => { if (tv && Date.now() - lastActive < 5000) warm.send("w", 9, tv, () => {}); }, 100);
 let benched = "";
 setInterval(() => { if (tvOk && tv && benched !== tv) { benched = tv; runBench().catch(() => { benched = ""; }); } if (!tvOk) benched = ""; }, 3000);
+setInterval(() => { if (tvOk && mode === "slow") benched = ""; }, 45_000);   // fast path failed earlier: try again
 const sh = (...cmd: string[]) => adb(["-s", `${tv}:5555`, "shell", ...cmd]);
 
 Bun.serve({
+  idleTimeout: 60,   // /bench runs ~15 s
   port: PORT, hostname: "0.0.0.0",
-  async fetch(req) {
+  websocket: {   // key presses over one open socket: no HTTP handshake/headers per press
+    message(ws, msg) {
+      try { const { k, id, p } = JSON.parse(String(msg));
+        lastActive = Date.now(); if (p) return void ws.send("p"); const code = KEYS[String(k).toUpperCase()];
+        if (code !== undefined && tv && tvOk) pressKey(code).then(() => ws.send(JSON.stringify({ id, ok: 1 })), () => ws.send(JSON.stringify({ id, ok: 0 })));
+        else ws.send(JSON.stringify({ id, ok: 0 })); } catch {}
+    },
+  },
+  async fetch(req, server) {
     const url = new URL(req.url);
+    if (url.pathname === "/ws" && server.upgrade(req)) return undefined as any;
     if (req.method === "OPTIONS") return new Response(null, { headers: cors });
     try {
       if (url.pathname === "/" || url.pathname === "/index.html")
