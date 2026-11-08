@@ -44,10 +44,35 @@ async function health() {
   return { cpu, mem, disk, batt, charging, services, procs, th: TH, topic: TOPIC };
 }
 const alertState = new Map<string, number>(); const strikes = new Map<string, number>();
+// Alert budget: ntfy's free tier allows ~250 messages a day and one message per failing service used it all up.
+// Now: services go out as ONE digest, only when the set of failing services changes (at most every 10 min),
+// metric alerts repeat every 6h instead of 30 min, and everything stops at DAILY_CAP messages a day.
+const DAILY_CAP = 40; let sentToday = 0, sentDay = "";
+async function push(title: string, body: string, priority = "default") {
+  const day = new Date().toDateString(); if (day !== sentDay) { sentDay = day; sentToday = 0; }
+  if (sentToday >= DAILY_CAP) return; sentToday++;
+  const extra = sentToday === DAILY_CAP ? "\n(alert limit for today reached; the rest are muted until tomorrow)" : "";
+  await fetch("https://ntfy.sh/" + TOPIC, { method: "POST", headers: { Title: title, Priority: priority }, body: body + extra }).catch(() => {});
+}
 async function notify(key: string, bad: boolean, msg: string) {
   const was = alertState.has(key);
-  if (bad && (!was || Date.now() - alertState.get(key)! > 30 * 60_000)) { alertState.set(key, Date.now()); await fetch("https://ntfy.sh/" + TOPIC, { method: "POST", headers: { Title: "Mac alert", Priority: "high" }, body: msg }).catch(() => {}); }
-  else if (!bad && was) { alertState.delete(key); await fetch("https://ntfy.sh/" + TOPIC, { method: "POST", headers: { Title: "Recovered" }, body: msg + " is back to normal" }).catch(() => {}); }
+  if (bad && (!was || Date.now() - alertState.get(key)! > 6 * 3600_000)) { alertState.set(key, Date.now()); await push("Mac alert", msg, "high"); }
+  else if (!bad && was) { alertState.delete(key); await push("Recovered", msg + " is back to normal"); }
+}
+let svcFailing = new Set<string>(), svcPrimed = false, lastDigest = 0;
+const short = (l: string) => l.replace(/^(com|ai)\./, "");
+async function svcDigest(failing: Set<string>) {
+  if (!svcPrimed) { svcPrimed = true; svcFailing = failing; return; }   // first look after a restart is the baseline, not news
+  const added = [...failing].filter((l) => !svcFailing.has(l)), fixed = [...svcFailing].filter((l) => !failing.has(l));
+  if (!added.length && !fixed.length) return;
+  if (Date.now() - lastDigest < 10 * 60_000) return;   // keep the change pending; it goes out in the next digest
+  const list = (a: string[]) => a.slice(0, 8).map(short).join(", ") + (a.length > 8 ? ` +${a.length - 8} more` : "");
+  const parts: string[] = [];
+  if (added.length) parts.push(`Down (${added.length}): ${list(added)}`);
+  if (fixed.length) parts.push(`Back (${fixed.length}): ${list(fixed)}`);
+  parts.push(`${failing.size} failing now`);
+  svcFailing = failing; lastDigest = Date.now();
+  await push("Services", parts.join("\n"), added.length ? "high" : "default");
 }
 async function monitor() {
   try {
@@ -56,7 +81,7 @@ async function monitor() {
     await notify("mem", hot("mem", h.mem > TH.mem), `Memory ${h.mem}%`);
     await notify("disk", h.disk > TH.disk, `Disk ${h.disk}% full`);
     await notify("batt", h.batt !== null && !h.charging && h.batt < TH.batt, `Battery ${h.batt}%`);
-    for (const sv of h.services) if (sv.label !== SELF) await notify("svc:" + sv.label, hot("svc:" + sv.label, !sv.pid && sv.exit !== 0 && sv.loaded), `Service ${sv.label} is down (exit ${sv.exit})`);
+    await svcDigest(new Set(h.services.filter((sv) => sv.label !== SELF && hot("svc:" + sv.label, sv.state === "failing")).map((sv) => sv.label)));
   } catch (e) { console.error("monitor", e); }
 }
 setInterval(monitor, 30_000);
@@ -97,7 +122,7 @@ async function pc(action: string, b: Record<string, string>) {
       for (let i = 0; i < 15 && alive(); i++) await Bun.sleep(100);      // give it 1.5s to exit politely
       let forced = false; if (alive()) { process.kill(pid, "SIGKILL"); forced = true; for (let i = 0; i < 5 && alive(); i++) await Bun.sleep(100); }
       return { gone: !alive(), forced }; }
-    case "testalert": await fetch("https://ntfy.sh/" + TOPIC, { method: "POST", headers: { Title: "Test" }, body: "Alerts work" }); return {};
+    case "testalert": await push("Test", "Alerts work"); return {};
     case "keepawake":
       if (awake) { awake.kill(); awake = null; } else awake = Bun.spawn(["caffeinate", "-dims"]);
       return { awake: !!awake };
