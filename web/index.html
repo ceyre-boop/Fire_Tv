@@ -58,6 +58,10 @@ small,.note{color:var(--mut);display:block;margin:10px 4px 0;font-size:12.5px;li
 .dpad .mid.on{background:var(--accx);transform:translate(-50%,-50%) scale(.94)}
 .hold{position:relative;overflow:hidden}.hold:after{content:"";position:absolute;left:0;bottom:0;height:4px;width:0;background:var(--bad)}.hold.go:after{width:100%;transition:width .7s linear}
 #toast{position:fixed;left:50%;bottom:max(18px,env(safe-area-inset-bottom));transform:translate(-50%,20px);background:var(--tx);color:var(--bg);padding:9px 16px;border-radius:20px;font-size:13.5px;opacity:0;transition:.2s;pointer-events:none;z-index:9}#toast.show{opacity:.94;transform:translate(-50%,0)}#toast.err{background:var(--bad);color:#fff}
+.bar{position:relative;overflow:visible!important}.bar i{border-radius:6px}.bar i.busy{background:#e0b341}.bar i.hot{background:var(--bad)}b.busy{color:#e0b341}b.hot{color:var(--bad)}
+.bar u{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--mut);opacity:.55;text-decoration:none}
+.gsub{font-size:12px;opacity:.65;margin-top:5px;line-height:1.45}.gsub em{font-style:normal}.gsub .ok{color:var(--ok)}.gsub .busy{color:#e0b341}.gsub .hot{color:var(--bad)}
+.rule{font-size:12.5px;line-height:1.5;opacity:.8;padding:10px 12px;border-radius:12px;background:var(--btn);margin-bottom:10px}
 .gauge{padding:6px 2px}.gh{display:flex;justify-content:space-between;font-size:14px;margin-bottom:6px}.gh b{font-weight:600}
 .bar{height:6px;background:var(--btn);border-radius:6px;overflow:hidden}.bar i{display:block;height:100%;background:var(--ok);border-radius:6px;transition:width .4s}
 .bar i.bad{background:var(--bad)}b.bad{color:var(--bad)}
@@ -216,8 +220,13 @@ document.addEventListener("click",e=>{const pb=e.target.closest("[data-po2]");if
 let hlT;const tab=n=>{clearInterval(hlT);if(n=="hl"){hlHealth();hlT=setInterval(hlHealth,10000)}$("#hl").style.display=n=="hl"?"block":"none";$("#sc").style.display=n=="sc"?"block":"none";$("#sc").classList.toggle("full",n=="sc");applyRot();$("#tSc").className=n=="sc"?"on":"";if(n=="sc")scStart();$("#tHl").className=n=="hl"?"on":"";$("#tv").style.display=n=="tv"?"":"none";$("#pc").style.display=n=="pc"?"block":"none";$("#tTv").className=n=="tv"?"on":"";$("#tPc").className=n=="pc"?"on":"";S("tab",n);if(n=="pc")pcStatus()};
 $("#tTv").onclick=()=>tab("tv");$("#tPc").onclick=()=>tab("pc");$("#tHl").onclick=()=>tab("hl");$("#tSc").onclick=()=>tab("sc");
 async function hlHealth(){const j=await pcApi("health");if(!j)return;
-  const g=(n,v,t,inv)=>{const bad=inv?v<t:v>t;return `<div class="gauge"><div class="gh"><span>${n}</span><b class="${bad?"bad":""}">${v}%</b></div><div class="bar"><i class="${bad?"bad":""}" style="width:${Math.min(100,v)}%"></i></div></div>`};
-  $("#gauges").innerHTML=g("CPU load",j.cpu,j.th.cpu)+g("Memory",j.mem,j.th.mem)+g("Disk",j.disk,j.th.disk)+(j.batt==null?"":g("Battery"+(j.charging?" · charging":""),j.batt,j.th.batt,1));
+  const mins=m=>m<1?"under a minute":m<90?Math.round(m)+" min":(m/60).toFixed(1)+" h";
+  const g=(key,n,v,note)=>{const L=j.levels[key],lv=j.lv[key],h=j.held[key],say={ok:"fine",busy:"busy",hot:"overloaded"}[lv];
+    return `<div class="gauge"><div class="gh"><span>${n}</span><b class="${lv}">${v}%</b></div><div class="bar"><i class="${lv}" style="width:${Math.min(100,v)}%"></i><u style="left:${L[0]}%"></u><u style="left:${L[1]}%"></u></div>
+      <div class="gsub"><em class="${lv}">${say}${lv=="ok"?"":" for "+mins(h)}</em> · fine under ${L[0]}% · busy ${L[0]}–${L[1]}% · overloaded ${L[1]}%+${note?"<br>"+note:""}</div></div>`};
+  const bat=j.batt==null?"":`<div class="gauge"><div class="gh"><span>Battery${j.charging?" · charging":""}</span><b class="${j.batt<j.th.batt?"hot":j.batt<40?"busy":""}">${j.batt}%</b></div><div class="bar"><i class="${j.batt<j.th.batt?"hot":j.batt<40?"busy":""}" style="width:${j.batt}%"></i><u style="left:${j.th.batt}%"></u><u style="left:40%"></u></div><div class="gsub">low under 40% · critical under ${j.th.batt}%</div></div>`;
+  $("#gauges").innerHTML=`<div class="rule"><b>How to read this.</b> A spike under 3 min is normal. <em style="color:#e0b341;font-style:normal">Busy</em> for 5+ min: check the top processes below. <em style="color:var(--bad);font-style:normal">Overloaded</em> for 10+ min: stop or restart the top process. Load numbers compare to your ${j.cores} cores: load ${j.cores} = 100%.</div>`+
+    g("cpu","CPU load",j.cpu,`load ${j.load[0]} · ${j.load[1]} · ${j.load[2]} (1 · 5 · 15 min) on ${j.cores} cores`)+g("mem","Memory",j.mem,"")+g("disk","Disk",j.disk,"")+bat
   svManaged=j.managed||[];svPinned=j.pinned||[];renderSvcs(j.services);
   $("#procs").innerHTML=j.procs.map(p=>`<div class="item"><span class="nm">${p.name}<em>${p.cpu}% cpu · ${p.mem}% mem</em></span><span class="acts"><button class="mini warn" data-kill="${p.pid}">Kill</button></span></div>`).join("");
   $("#alerts").textContent=`Alerts when CPU/mem >${j.th.cpu}/${j.th.mem}% (3 min), disk >${j.th.disk}%, battery <${j.th.batt}%, or a service dies. Install the free ntfy app and subscribe to topic: ${j.topic}`}

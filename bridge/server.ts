@@ -22,6 +22,12 @@ const TOPIC = readFileSync(NTFY_FILE, "utf8").trim();
 const LA = `${homedir()}/Library/LaunchAgents`, UID_ = process.getuid!(), SELF = "com.firetv.bridge";
 const TH = { cpu: 90, mem: 90, disk: 90, batt: 20, ...((cfg as any).th ?? {}) };
 const labels = () => existsSync(LA) ? readdirSync(LA).filter((f) => f.endsWith(".plist") && !f.startsWith("com.apple.")).map((f) => f.slice(0, -6)) : [];
+
+// Reference points: where "fine" turns into "busy" turns into "overloaded", and how long it has been at its current level.
+const LEVELS: Record<string, [number, number]> = { cpu: [60, 90], mem: [75, 90], disk: [80, 90] };   // [busy from, overloaded from], in %
+const levelOf = (k: string, v: number) => v >= LEVELS[k][1] ? "hot" : v >= LEVELS[k][0] ? "busy" : "ok";
+const levelSince = new Map<string, { lvl: string; t: number }>();
+const heldMin = (k: string, lvl: string) => { const e = levelSince.get(k); if (!e || e.lvl !== lvl) { levelSince.set(k, { lvl, t: Date.now() }); return 0; } return Math.round((Date.now() - e.t) / 6000) / 10; };
 async function health() {
   const n = cpus().length, cpu = Math.round((loadavg()[0] / n) * 100);
   const vm = await run(["vm_stat"]), pg = (k: string) => Number(vm.match(new RegExp(k + ":\\s+(\\d+)"))?.[1] ?? 0);
@@ -41,7 +47,9 @@ async function health() {
   });
   const ps = (await run(["ps", "-U", String(UID_), "-Ao", "pid=,pcpu=,pmem=,comm="])).split("\n").map((l) => { const m = l.trim().match(/^(\d+)\s+([\d.]+)\s+([\d.]+)\s+(.*)$/); return m ? { pid: +m[1], cpu: +m[2], mem: +m[3], name: m[4].split("/").pop()! } : null; }).filter(Boolean) as any[];
   const procs = ps.sort((a, b) => b.cpu - a.cpu).slice(0, 8);
-  return { cpu, mem, disk, batt, charging, services, procs, managed: await managedState(), pinned: procCfg().pinned, th: TH, topic: TOPIC };
+  const lv = { cpu: levelOf("cpu", cpu), mem: levelOf("mem", mem), disk: levelOf("disk", disk) };
+  const held = { cpu: heldMin("cpu", lv.cpu), mem: heldMin("mem", lv.mem), disk: heldMin("disk", lv.disk) };
+  return { cpu, mem, disk, batt, charging, services, procs, managed: await managedState(), pinned: procCfg().pinned, th: TH, topic: TOPIC, load: loadavg().map((x) => Math.round(x * 10) / 10), cores: n, levels: LEVELS, lv, held };
 }
 const alertState = new Map<string, number>(); const strikes = new Map<string, number>();
 // Alert budget: ntfy's free tier allows ~250 messages a day and one message per failing service used it all up.
