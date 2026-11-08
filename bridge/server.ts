@@ -28,6 +28,72 @@ const LEVELS: Record<string, [number, number]> = { cpu: [60, 90], mem: [75, 90],
 const levelOf = (k: string, v: number) => v >= LEVELS[k][1] ? "hot" : v >= LEVELS[k][0] ? "busy" : "ok";
 const levelSince = new Map<string, { lvl: string; t: number }>();
 const heldMin = (k: string, lvl: string) => { const e = levelSince.get(k); if (!e || e.lvl !== lvl) { levelSince.set(k, { lvl, t: Date.now() }); return 0; } return Math.round((Date.now() - e.t) / 6000) / 10; };
+
+// ---- Culprits: group every process of yours by WHAT STARTED IT, so "overloaded" has a cause you can read and stop. ----
+type PInfo = { pid: number; ppid: number; cpu: number; mem: number; up: number; args: string };
+const baseName = (p: string) => p.split("/").pop() ?? p;
+const PROTECTED_APPS = new Set(["Finder", "Dock", "SystemUIServer", "loginwindow", "WindowManager", "ControlCenter", "Notification Center"]);
+async function culprits(pidLabel: Map<number, string>, all = false) {
+  const ps = new Map<number, PInfo>();
+  for (const l of (await run(["ps", "-U", String(UID_), "-o", "pid=,ppid=,pcpu=,pmem=,etime=,args="])).split("\n")) {
+    const m = l.trim().match(/^(\d+)\s+(\d+)\s+([\d.]+)\s+([\d.]+)\s+(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)\s+(.*)$/);
+    if (!m) continue;
+    ps.set(+m[1], { pid: +m[1], ppid: +m[2], cpu: +m[3], mem: +m[4], up: (+(m[5] ?? 0)) * 86400 + (+(m[6] ?? 0)) * 3600 + (+m[7]) * 60 + (+m[8]), args: m[9] });
+  }
+  type Anchor = { key: string; title: string; kind: string; pid: number; project?: string };
+  const anchorOf = (p: PInfo): Anchor | null => {
+    const a = p.args;
+    if (/\bplaywright(\/lib\/cli\/cli\.js|\/cli\.js|\/test\/cli\.js)?\s+test\b|\.bin\/playwright test/.test(a) && !/workerProcessEntry/.test(a)) {
+      const project = a.match(/\/Users\/[^/]+\/([^/]+)\/node_modules/)?.[1] ?? "unknown project";
+      return { key: "pw:" + p.pid, title: `Playwright test run (${project})`, kind: "pw", pid: p.pid, project };
+    }
+    if (/^(?:\S*\/)?claude(?: |$)/.test(a) && !/\.app\//.test(a)) return { key: "cl:" + p.pid, title: `Claude Code session (open ${p.up < 5400 ? Math.round(p.up / 60) + " min" : Math.round(p.up / 3600) + " h"}, pid ${p.pid})`, kind: "claude", pid: p.pid };
+    const lab = pidLabel.get(p.pid);
+    if (lab?.startsWith("application.")) { const app = lab.replace(/^application\./, "").replace(/\.\d+$/, "").split(".").pop()!; return { key: "app:" + app, title: app.charAt(0).toUpperCase() + app.slice(1), kind: "app", pid: p.pid }; }   // GUI apps show up in launchd as application.<bundle id>
+    if (lab) return { key: "svc:" + lab, title: `Service: ${lab.replace(/^(com|ai)\./, "")}`, kind: "svc", pid: p.pid };
+    const app = a.match(/\/([^/]+)\.app\/Contents\//)?.[1]; if (app) return { key: "app:" + app, title: app, kind: "app", pid: p.pid };
+    return null;
+  };
+  const groups = new Map<string, { a: Anchor; pids: number[]; cpu: number; mem: number; up: number; types: Map<string, number> }>();
+  const typeOf = (a: string) => /chrome-headless-shell/.test(a) ? "headless Chrome" : /workerProcessEntry/.test(a) ? "test workers" : /Helper \(Renderer\)/.test(a) ? "renderers" : /Helper \(GPU\)|Helper \(Aperitif\)|gpu-process/.test(a) ? "graphics" : baseName((a.match(/^(\S*?\.app\/Contents\/MacOS\/[^ ]+|\S+)/)?.[1] ?? a)).slice(0, 24);
+  for (const p of ps.values()) {
+    let anchor: Anchor | null = null, cur: PInfo | undefined = p, hops = 0;
+    while (cur && hops++ < 40) { anchor = anchorOf(cur); if (anchor) break; cur = ps.get(cur.ppid); }
+    if (!anchor) {   // no recognizable parent: describe it by its script, else its program
+      const sc = p.args.match(/(\S+\.(?:ts|js|mjs|py|sh))\b/)?.[1];
+      const t = sc ? `${baseName(sc.split("/").slice(0, -1).join("/") || "")}/${baseName(sc)}` : baseName(p.args.split(" ")[0]);
+      anchor = { key: "px:" + p.pid, title: t, kind: "proc", pid: p.pid };
+    }
+    const g = groups.get(anchor.key) ?? { a: anchor, pids: [], cpu: 0, mem: 0, up: 0, types: new Map() };
+    g.pids.push(p.pid); g.cpu += p.cpu; g.mem += p.mem; g.up = Math.max(g.up, p.up);
+    const ty = typeOf(p.args); g.types.set(ty, (g.types.get(ty) ?? 0) + 1);
+    groups.set(anchor.key, g);
+  }
+  const claudeOf = (pid: number) => { let c = ps.get(ps.get(pid)?.ppid ?? 0), n = 0; while (c && n++ < 40) { if (/^(?:\S*\/)?claude(?: |$)/.test(c.args) && !/\.app\//.test(c.args)) return c; c = ps.get(c.ppid); } return null; };
+  const out = [...groups.entries()].map(([key, g]) => {
+    const types = [...g.types.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([t, n]) => `${n} ${t}`).join(", ");
+    const via = g.a.kind === "pw" ? (() => { const c = claudeOf(g.a.pid); return c ? ` · started by a Claude Code session (up ${Math.round(c.up / 60)} min)` : ""; })() : "";
+    const prot = (g.a.kind === "app" && PROTECTED_APPS.has(g.a.title)) || g.pids.includes(process.pid) || key === "svc:" + SELF;
+    const warn = g.a.kind === "claude" ? "Ends that Claude session and its terminal work." : g.a.kind === "app" ? `Quits ${g.a.title} and everything open in it.` : g.a.kind === "svc" ? "Stops this service (it may restart itself)." : "";
+    return { key, title: g.a.title, cpu: Math.round(g.cpu), mem: Math.round(g.mem * 10) / 10, count: g.pids.length, up: g.up, detail: `${g.pids.length} process${g.pids.length > 1 ? "es" : ""} (${types})${via}`, warn, protected: prot, pids: g.pids };
+  }).sort((a, b) => b.cpu - a.cpu);
+  return all ? out : out.slice(0, 8);
+}
+async function killGroup(key: string) {
+  const labs = new Map<number, string>();   // recompute so the key still refers to what the user saw
+  for (const l of (await run(["launchctl", "list"])).split("\n").slice(1)) { const [pid, , lb] = l.split("\t"); if (pid !== "-" && lb) labs.set(+pid, lb); }
+  const g = (await culprits(labs, true)).find((x) => x.key === key);
+  if (!g) throw new Error("that group is already gone");
+  if (g.protected) throw new Error("protected: not allowed to stop " + g.title);
+  const pids = g.pids.filter((p) => p !== process.pid);
+  for (const p of pids) { try { process.kill(p, "SIGTERM"); } catch {} }
+  const alive = () => pids.filter((p) => { try { process.kill(p, 0); return true; } catch { return false; } });
+  for (let i = 0; i < 15 && alive().length; i++) await Bun.sleep(100);
+  const left = alive(); for (const p of left) { try { process.kill(p, "SIGKILL"); } catch {} }
+  await Bun.sleep(300);
+  return { title: g.title, stopped: pids.length, forced: left.length, remaining: alive().length };
+}
+
 async function health() {
   const n = cpus().length, cpu = Math.round((loadavg()[0] / n) * 100);
   const vm = await run(["vm_stat"]), pg = (k: string) => Number(vm.match(new RegExp(k + ":\\s+(\\d+)"))?.[1] ?? 0);
@@ -49,7 +115,9 @@ async function health() {
   const procs = ps.sort((a, b) => b.cpu - a.cpu).slice(0, 8);
   const lv = { cpu: levelOf("cpu", cpu), mem: levelOf("mem", mem), disk: levelOf("disk", disk) };
   const held = { cpu: heldMin("cpu", lv.cpu), mem: heldMin("mem", lv.mem), disk: heldMin("disk", lv.disk) };
-  return { cpu, mem, disk, batt, charging, services, procs, managed: await managedState(), pinned: procCfg().pinned, th: TH, topic: TOPIC, load: loadavg().map((x) => Math.round(x * 10) / 10), cores: n, levels: LEVELS, lv, held };
+  const pidLabel = new Map<number, string>(); for (const [lb, r] of rows) if (r.pid) pidLabel.set(r.pid, lb);
+  const culprit = await culprits(pidLabel);
+  return { cpu, mem, disk, batt, charging, services, procs, culprits: culprit, managed: await managedState(), pinned: procCfg().pinned, th: TH, topic: TOPIC, load: loadavg().map((x) => Math.round(x * 10) / 10), cores: n, levels: LEVELS, lv, held };
 }
 const alertState = new Map<string, number>(); const strikes = new Map<string, number>();
 // Alert budget: ntfy's free tier allows ~250 messages a day and one message per failing service used it all up.
@@ -150,6 +218,7 @@ async function pc(action: string, b: Record<string, string>) {
     case "health": return await health();
     case "svc": return await svcOp(String(b.label), String(b.op));
     case "proc": return await procOp(String(b.id), String(b.op));
+    case "killgroup": return await killGroup(String(b.key));
     case "svcs": {   // a whole group at once
       const ls = (Array.isArray((b as any).labels) ? (b as any).labels : []).map(String).slice(0, 80);
       const out: Record<string, string> = {};
