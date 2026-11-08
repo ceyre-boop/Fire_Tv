@@ -136,7 +136,8 @@ async function screen(action: string, req: Request): Promise<Response> {
     return new Response(f, { headers: { ...cors, "content-type": "image/jpeg", "cache-control": "no-store" } });
   }
   if (action === "inputcheck") {   // can this process post clicks? (needs the Accessibility permission; without it taps silently do nothing)
-    const o = await run(["osascript", "-l", "JavaScript", "-e", 'ObjC.import("ApplicationServices");$.AXIsProcessTrusted()']);
+    const ask = new URL(req.url).searchParams.get("prompt") === "1";   // ?prompt=1 makes macOS show its own "allow control" prompt and adds the entry to the list
+    const o = await run(["osascript", "-l", "JavaScript", "-e", ask ? 'ObjC.import("ApplicationServices");$.AXIsProcessTrustedWithOptions($({AXTrustedCheckOptionPrompt:true}))' : 'ObjC.import("ApplicationServices");$.AXIsProcessTrusted()']);
     return json({ accessibility: o.trim() === "true" });
   }
   const b = (await req.json().catch(() => ({}))) as Record<string, unknown>;
