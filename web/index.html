@@ -34,6 +34,18 @@ label{font-size:13px;color:var(--mut);display:block;margin-top:10px}
 .send{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;margin:12px 0}.send input{margin:0}.send button{height:48px;padding:0 20px}
 small,.note{color:var(--mut);display:block;margin:10px 4px 0;font-size:12.5px;line-height:1.5}
 #pc,#hl{display:none}
+.remote{width:216px;margin:6px auto 12px;background:var(--card);border:1px solid var(--line);border-radius:44px;padding:16px 16px 18px;box-shadow:var(--sh)}
+.remote .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.mini2{margin:0;padding:2px;border-radius:10px;width:96px}.mini2 button{height:26px;font-size:11px;border-radius:8px}
+.remote .dpad,.remote .swipe{width:150px;margin:4px auto 14px;box-shadow:none;background:var(--btn);border:0}
+.remote .swipe{width:100%;aspect-ratio:1.3;border-radius:24px}
+.remote .dpad .a{font-size:11px}.remote .dpad .mid{font-size:13px}
+.rbs{display:flex;justify-content:space-between;margin:0 6px 10px}
+.rb{width:42px;height:42px;border-radius:50%;padding:0;font-size:15px;line-height:1}
+.hold.rb{width:34px;height:34px;font-size:15px}
+.apps{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:4px}.apps button{height:30px;font-size:11.5px;border-radius:15px}
+.more{margin:0 auto;max-width:300px;border-radius:14px;padding:10px 12px;margin-top:6px}.more summary{font-size:13px;color:var(--mut)}.more .row{margin:10px 0 0}
+
 .tvbar{display:flex;justify-content:space-between;align-items:center;margin:0 4px 12px;font-size:13.5px;color:var(--mut)}#tvs{display:flex;align-items:center;gap:8px}
 .seg{display:grid;grid-template-columns:1fr 1fr;background:var(--btn);border-radius:12px;padding:3px;margin:14px 0 10px}.seg button{height:34px;font-size:13.5px;background:transparent;color:var(--mut);border-radius:9px}.seg .on{background:var(--card);color:var(--tx);box-shadow:var(--sh)}
 .dpad,.swipe{position:relative;width:170px;aspect-ratio:1;margin:8px auto 14px;border-radius:50%;background:var(--card);border:1px solid var(--line);box-shadow:var(--sh);touch-action:none;overflow:hidden}
@@ -61,18 +73,20 @@ code{font-size:12px;background:var(--btn);padding:1px 5px;border-radius:5px}
 <nav class="tabs"><button id="tTv" class="on">TV</button><button id="tPc">Computer</button><button id="tHl">Health</button></nav>
 <div id="tv">
 <div class="tvbar"><span id="tvs"><i class="dot"></i>TV: checking&hellip;</span><button id="find" class="mini">Find TV</button></div>
-<div class="row c3"><button class="warn hold" data-k="POWER">Hold: Power</button><button data-k="HOME">Home</button><button data-k="MUTE">Mute</button></div>
-<div class="seg"><button id="mPad" class="on">Pad</button><button id="mSwipe">Swipe</button></div>
+<div class="remote">
+<div class="top"><div class="seg mini2"><button id="mPad" class="on">Pad</button><button id="mSwipe">Swipe</button></div><button class="rb warn hold" data-k="POWER" title="Hold to power">&#9211;</button></div>
 <div id="dpad" class="dpad"><i class="w up"></i><i class="w right"></i><i class="w down"></i><i class="w left"></i>
 <span class="a u">&#9650;</span><span class="a r">&#9654;</span><span class="a d">&#9660;</span><span class="a l">&#9664;</span><div class="mid">OK</div></div>
 <div id="swipe" class="swipe"><p>Swipe to move<br>Tap to select</p></div>
-<div class="row c3"><button data-k="BACK">Back</button><button data-k="HOME">Home</button><button data-k="MENU">Menu</button></div>
-<div class="card"><div class="row c4"><button data-k="REWIND">&#9194;&#xFE0E;</button><button data-k="PLAYPAUSE">&#9199;&#xFE0E;</button><button data-k="FF">&#9193;&#xFE0E;</button><button data-k="VOLUP">Vol +</button></div>
-<div class="row c4"><button data-k="PREV">&#9198;&#xFE0E;</button><button data-k="NEXT">&#9197;&#xFE0E;</button><button data-k="VOLDOWN">Vol &minus;</button><button data-k="SLEEP">Sleep</button></div></div>
-<h3>Apps</h3>
-<div class="row c3"><button class="sm" data-a="netflix">Netflix</button><button class="sm" data-a="youtube">YouTube</button><button class="sm" data-a="prime">Prime</button>
-<button class="sm" data-a="disney">Disney+</button><button class="sm" data-a="hulu">Hulu</button><button class="sm" data-a="spotify">Spotify</button></div>
+<div class="rbs"><button class="rb" data-k="BACK">&#8592;</button><button class="rb" data-k="HOME">&#8962;</button><button class="rb" data-k="MENU">&#9776;</button></div>
+<div class="rbs"><button class="rb" data-k="REWIND">&#9194;&#xFE0E;</button><button class="rb" data-k="PLAYPAUSE">&#9199;&#xFE0E;</button><button class="rb" data-k="FF">&#9193;&#xFE0E;</button></div>
+<div class="rbs"><button class="rb" data-k="VOLDOWN">&minus;</button><button class="rb" data-k="MUTE">&#128263;&#xFE0E;</button><button class="rb" data-k="VOLUP">+</button></div>
+<div class="apps"><button data-a="netflix">Netflix</button><button data-a="prime">Prime</button><button data-a="disney">Disney+</button><button data-a="hulu">Hulu</button><button data-a="youtube">YouTube</button><button data-a="spotify">Spotify</button></div>
+</div>
+<details class="more"><summary>More</summary>
+<div class="row c3"><button class="sm" data-k="PREV">Prev</button><button class="sm" data-k="NEXT">Next</button><button class="sm" data-k="SLEEP">Sleep</button></div>
 <div class="send"><input id="txt" placeholder="Type to TV&hellip;"><button id="send" class="pri">Send</button></div>
+</details>
 </div>
 <div id="pc">
 <h3>Power</h3>
