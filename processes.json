@@ -18,6 +18,22 @@
         "stop"
       ],
       "match": "src/daemon.ts"
+    },
+    {
+      "id": "rnr-messenger",
+      "name": "RnR Messenger",
+      "cwd": "~",
+      "start": [
+        "open",
+        "-a",
+        "RnR Backstage IM Messenger"
+      ],
+      "stop": [
+        "osascript",
+        "-e",
+        "quit app \"RnR Backstage IM Messenger\""
+      ],
+      "match": "RnR Backstage IM Messenger.app/Contents/MacOS"
     }
   ]
 }
