@@ -63,6 +63,9 @@ small,.note{color:var(--mut);display:block;margin:10px 4px 0;font-size:12.5px;li
 .bar i.bad{background:var(--bad)}b.bad{color:var(--bad)}
 .item{display:flex;align-items:center;gap:10px;padding:10px 2px;border-top:1px solid var(--line);font-size:14.5px}.item:first-child{border-top:0}
 .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.nm em{display:block;font-style:normal;font-size:12px;color:var(--mut)}
+.sg{margin-bottom:14px}.sgh{display:flex;align-items:center;gap:8px;padding:6px 2px}.sgh .gn{font-weight:600;text-transform:uppercase;letter-spacing:.08em;font-size:12px;flex:1;cursor:pointer}.sgh .gc{opacity:.6;font-size:12px}
+.dot.warm{background:#e0b341}.dot.idle{background:transparent;box-shadow:inset 0 0 0 2px var(--mut)}.sst{opacity:.55;font-size:12px;margin-left:6px}
+.chips{display:flex;gap:8px;margin:0 0 10px}.chips button{padding:5px 12px;border-radius:999px;font-size:13px;background:var(--btn);color:var(--mut)}.chips button.on{background:var(--card);color:var(--tx)}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--line);flex:none}.dot.up{background:var(--ok)}.dot.down{background:var(--bad)}
 .acts{display:flex;gap:6px;flex:none}.mini{height:32px;padding:0 11px;font-size:12.5px;border-radius:10px}
 details{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:14px;margin-top:22px}summary{font-weight:500;cursor:pointer}
@@ -109,7 +112,7 @@ code{font-size:12px;background:var(--btn);padding:1px 5px;border-radius:5px}
 <div style="display:flex;gap:8px;margin-top:10px"><input id="scTxt" placeholder="type on the Mac…" style="flex:1"><button class="sm" id="scSend">Send</button></div>
 <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button class="sm" data-pk="enter">Enter</button><button class="sm" data-pk="esc">Esc</button><button class="sm" data-pk="tab">Tab</button><button class="sm" id="scMode">Mode: scroll</button></div>
 <p style="opacity:.55;font-size:12px;margin-top:8px">Tap = click · double-tap = double-click · hold = right-click · drag = scroll (or drag-mode: move things)</p></div>
-<div id="hl"><div class="card" id="gauges"></div><h3>Services</h3><div class="card" id="svcs"></div><h3>Top processes</h3><div class="card" id="procs"></div>
+<div id="hl"><div class="card" id="gauges"></div><h3>Services</h3><div class="chips"><button id="svAll" class="on">All</button><button id="svRun">Running</button></div><div id="svcs"></div><h3>Top processes</h3><div class="card" id="procs"></div>
 <small id="alerts"></small><button id="ta" style="width:100%;height:46px;margin-top:14px">Send test alert</button></div>
 <details id="setup"><summary>Setup</summary>
 <label>Bridge URL<input id="bridge" placeholder="https://xxxx.trycloudflare.com"></label>
@@ -157,12 +160,29 @@ $("#scSend").onclick=()=>{const v=$("#scTxt").value;if(v){pcApi("type",{text:v})
     else if(!d.moved&&!d.long){const now=Date.now(),dbl=now-lastTap<320;lastTap=dbl?0:now;send("tap",{fx:p.x,fy:p.y,kind:dbl?"double":"click"})}
     d=null};
   box.onpointercancel=()=>{if(d)clearTimeout(d.lt);d=null}})();
+
+// ---- Services: grouped, with PROVEN status (green = alive 30s+; amber = just started; red = failing; hollow = idle/scheduled) ----
+let svView=L("svView")||"all",svData=[],svOpen=new Set(JSON.parse(L("svOpen")||"[]"));
+const svName=l=>l.replace(/^(?:com|ai)\./,"").replace(/^sh\./,""),svGroup=l=>{const n=svName(l);return n.split(/[.\-_]/)[0]||n};
+const svOrder={running:0,starting:1,failing:2,idle:3,off:4},dur=s=>s<90?s+"s":s<5400?Math.round(s/60)+"m":s<172800?Math.round(s/3600)+"h":Math.round(s/86400)+"d";
+const svTxt=s=>s.state=="running"?"running "+dur(s.up):s.state=="starting"?"starting…":s.state=="failing"?"failing (exit "+s.exit+")":s.state=="idle"?"idle":"not loaded";
+function renderSvcs(list){svData=list||svData;const g={};for(const s of svData){if(svView=="run"&&s.state!="running"&&s.state!="starting")continue;(g[svGroup(s.label)]??=[]).push(s)}
+  const names=Object.keys(g).sort((a,b)=>(g[b].filter(x=>x.state=="running").length>0)-(g[a].filter(x=>x.state=="running").length>0)||a.localeCompare(b));
+  $("#svAll").className=svView=="all"?"on":"";$("#svRun").className=svView=="run"?"on":"";
+  $("#svcs").innerHTML=names.map(n=>{const m=g[n].sort((a,b)=>svOrder[a.state]-svOrder[b.state]||a.label.localeCompare(b.label)),run=m.filter(x=>x.state=="running").length,open=svOpen.has(n),ls=m.map(x=>x.label).join(",");
+    return `<div class="sg"><div class="sgh"><span class="gn" data-gt="${n}">${open?"▾":"▸"} ${n} <span class="gc">${run}/${m.length} running</span></span><button class="mini" data-gs="start" data-ls="${ls}">Start all</button><button class="mini" data-gs="restart" data-ls="${ls}">Restart all</button><button class="mini warn" data-gs="stop" data-ls="${ls}">Stop all</button></div>`+
+      (open?`<div class="card">${m.map(s=>`<div class="item"><span class="dot ${s.state=="running"?"up":s.state=="starting"?"warm":s.state=="failing"?"down":s.state=="idle"?"idle":""}"></span><span class="nm">${svName(s.label)}<span class="sst">${svTxt(s)}</span></span><span class="acts">${s.state=="running"||s.state=="starting"?`<button class="mini" data-sv="restart" data-l="${s.label}">Restart</button><button class="mini warn" data-sv="stop" data-l="${s.label}">Stop</button>`:`<button class="mini" data-sv="start" data-l="${s.label}">Start</button>`}</span></div>`).join("")}</div>`:"")+`</div>`}).join("")||'<div class="card"><div class="item"><span class="nm">nothing running</span></div></div>'}
+$("#svAll").onclick=()=>{svView="all";S("svView",svView);renderSvcs()};$("#svRun").onclick=()=>{svView="run";S("svView",svView);renderSvcs()};
+document.addEventListener("click",e=>{const t=e.target.closest("[data-gt],[data-gs]");if(!t)return;
+  if(t.dataset.gt){const n=t.dataset.gt;svOpen.has(n)?svOpen.delete(n):svOpen.add(n);S("svOpen",JSON.stringify([...svOpen]));renderSvcs();return}
+  const op=t.dataset.gs,ls=t.dataset.ls.split(",");if(op=="stop"&&!confirm("Stop "+ls.length+" services?"))return;
+  toast((op=="start"?"Starting ":op=="stop"?"Stopping ":"Restarting ")+ls.length+"…");pcApi("svcs",{labels:ls,op}).then(j=>{if(j)toast("Done");setTimeout(hlHealth,1500);setTimeout(hlHealth,6000)})});
 let hlT;const tab=n=>{clearInterval(hlT);if(n=="hl"){hlHealth();hlT=setInterval(hlHealth,10000)}$("#hl").style.display=n=="hl"?"block":"none";$("#sc").style.display=n=="sc"?"block":"none";$("#tSc").className=n=="sc"?"on":"";if(n=="sc")scStart();$("#tHl").className=n=="hl"?"on":"";$("#tv").style.display=n=="tv"?"":"none";$("#pc").style.display=n=="pc"?"block":"none";$("#tTv").className=n=="tv"?"on":"";$("#tPc").className=n=="pc"?"on":"";S("tab",n);if(n=="pc")pcStatus()};
 $("#tTv").onclick=()=>tab("tv");$("#tPc").onclick=()=>tab("pc");$("#tHl").onclick=()=>tab("hl");$("#tSc").onclick=()=>tab("sc");
 async function hlHealth(){const j=await pcApi("health");if(!j)return;
   const g=(n,v,t,inv)=>{const bad=inv?v<t:v>t;return `<div class="gauge"><div class="gh"><span>${n}</span><b class="${bad?"bad":""}">${v}%</b></div><div class="bar"><i class="${bad?"bad":""}" style="width:${Math.min(100,v)}%"></i></div></div>`};
   $("#gauges").innerHTML=g("CPU load",j.cpu,j.th.cpu)+g("Memory",j.mem,j.th.mem)+g("Disk",j.disk,j.th.disk)+(j.batt==null?"":g("Battery"+(j.charging?" · charging":""),j.batt,j.th.batt,1));
-  $("#svcs").innerHTML=j.services.map(s=>`<div class="item"><span class="dot ${s.pid?"up":s.loaded?"down":""}"></span><span class="nm">${s.label.replace(/^(com|ai|sh)\./,"")}</span><span class="acts"><button class="mini" data-sv="start" data-l="${s.label}">Start</button><button class="mini" data-sv="restart" data-l="${s.label}">Restart</button><button class="mini warn" data-sv="stop" data-l="${s.label}">Stop</button></span></div>`).join("")||'<p class="note">No user LaunchAgents found.</p>';
+  renderSvcs(j.services);
   $("#procs").innerHTML=j.procs.map(p=>`<div class="item"><span class="nm">${p.name}<em>${p.cpu}% cpu · ${p.mem}% mem</em></span><span class="acts"><button class="mini warn" data-kill="${p.pid}">Kill</button></span></div>`).join("");
   $("#alerts").textContent=`Alerts when CPU/mem >${j.th.cpu}/${j.th.mem}% (3 min), disk >${j.th.disk}%, battery <${j.th.batt}%, or a service dies. Install the free ntfy app and subscribe to topic: ${j.topic}`}
 $("#ta").onclick=()=>pcApi("testalert",{});
@@ -180,7 +200,7 @@ async function api(p,body){
 document.addEventListener("click",e=>{const t=e.target.closest("button");if(!t)return;
   if(navigator.vibrate)navigator.vibrate(12);
   if(t.dataset.p){pcApi(t.dataset.p,{dir:t.dataset.d}).then(j=>{if(j&&t.dataset.p=="keepawake")pcStatus()});return}
-  if(t.dataset.sv){pcApi("svc",{label:t.dataset.l,op:t.dataset.sv}).then(()=>setTimeout(hlHealth,1500));return}
+  if(t.dataset.sv){pcApi("svc",{label:t.dataset.l,op:t.dataset.sv}).then(()=>{setTimeout(hlHealth,1500);setTimeout(hlHealth,6000)});return}
   if(t.dataset.kill){if(confirm("Kill process "+t.dataset.kill+"?"))pcApi("kill",{pid:t.dataset.kill}).then(j=>{if(j)toast(j.gone?(j.forced?"Force-killed":"Stopped"):"Still running (it restarts itself or isn\u2019t yours to stop)",!j.gone);setTimeout(hlHealth,400)});return}
   if(t.dataset.pk){pcApi("key",{key:t.dataset.pk});return}if(t.dataset.po){pcApi("open",{app:t.dataset.po});return}
   if(t.dataset.k)api("/key",{key:t.dataset.k});else if(t.dataset.a)api("/launch",{app:t.dataset.a}).then(j=>j?toast("Opening "+t.dataset.a):toast("Not sent - bridge or TV offline",1))});

@@ -31,7 +31,14 @@ async function health() {
   const b = await run(["pmset", "-g", "batt"]), bm = b.match(/(\d+)%/);
   const batt = bm ? Number(bm[1]) : null, charging = !/discharging/.test(b);
   const list = await run(["launchctl", "list"]); const rows = new Map(list.split("\n").slice(1).map((l) => { const [pid, st, lb] = l.split("\t"); return [lb, { pid: pid === "-" ? null : Number(pid), exit: Number(st) }] as const; }));
-  const services = labels().map((label) => ({ label, loaded: rows.has(label), pid: rows.get(label)?.pid ?? null, exit: rows.get(label)?.exit ?? null }));
+  // uptime per pid, so "running" can mean PROVEN running (alive for 30s+), not just "has a pid right now"
+  const et = new Map<number, number>();
+  for (const l of (await run(["ps", "-Ao", "pid=,etime="])).split("\n")) { const m = l.trim().match(/^(\d+)\s+(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)$/); if (m) et.set(+m[1], (+(m[2] ?? 0)) * 86400 + (+(m[3] ?? 0)) * 3600 + (+m[4]) * 60 + (+m[5])); }
+  const services = labels().map((label) => {
+    const loaded = rows.has(label), pid = rows.get(label)?.pid ?? null, exit = rows.get(label)?.exit ?? null, up = pid ? (et.get(pid) ?? 0) : 0;
+    const state = pid ? (up >= 30 ? "running" : "starting") : !loaded ? "off" : exit ? "failing" : "idle";
+    return { label, loaded, pid, exit, up, state };
+  });
   const ps = (await run(["ps", "-U", String(UID_), "-Ao", "pid=,pcpu=,pmem=,comm="])).split("\n").map((l) => { const m = l.trim().match(/^(\d+)\s+([\d.]+)\s+([\d.]+)\s+(.*)$/); return m ? { pid: +m[1], cpu: +m[2], mem: +m[3], name: m[4].split("/").pop()! } : null; }).filter(Boolean) as any[];
   const procs = ps.sort((a, b) => b.cpu - a.cpu).slice(0, 8);
   return { cpu, mem, disk, batt, charging, services, procs, th: TH, topic: TOPIC };
@@ -63,20 +70,27 @@ function wol(mac: string) {
 }
 const run = async (cmd: string[]) => { const p = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe" }); const o = await new Response(p.stdout).text(); await p.exited; return o.trim(); };
 const osa = (script: string) => run(["osascript", "-e", script]);
+async function svcOp(l: string, op: string) {
+  if (!labels().includes(l)) throw new Error("unknown service");
+  if (l === SELF && op !== "restart") throw new Error("won't stop the bridge itself");
+  const t = `gui/${UID_}/${l}`;
+  if (op === "restart") return { out: await run(["launchctl", "kickstart", "-k", t]) };
+  if (op === "stop") return { out: await run(["launchctl", "bootout", t]) };
+  if (op === "start") { const o = await run(["launchctl", "bootstrap", `gui/${UID_}`, `${LA}/${l}.plist`]); return { out: o + (await run(["launchctl", "kickstart", t])) }; }
+  throw new Error("bad op");
+}
 async function pc(action: string, b: Record<string, string>) {
   switch (action) {
     case "status": return { awake: !!awake, mac: cfg.mac ?? null, apps: PC_APPS };
     case "config": { if (b.mac) wol(b.mac); cfg.mac = b.mac; writeFileSync(CFG_FILE, JSON.stringify(cfg)); return { mac: cfg.mac }; }
     case "wake": if (!cfg.mac) throw new Error("set the computer's MAC first"); wol(cfg.mac); return { sent: cfg.mac };
     case "health": return await health();
-    case "svc": {
-      const l = String(b.label); if (!labels().includes(l)) throw new Error("unknown service");
-      if (l === SELF && b.op !== "restart") throw new Error("won't stop the bridge itself");
-      const t = `gui/${UID_}/${l}`;
-      if (b.op === "restart") return { out: await run(["launchctl", "kickstart", "-k", t]) };
-      if (b.op === "stop") return { out: await run(["launchctl", "bootout", t]) };
-      if (b.op === "start") { const o = await run(["launchctl", "bootstrap", `gui/${UID_}`, `${LA}/${l}.plist`]); return { out: o + (await run(["launchctl", "kickstart", t])) }; }
-      throw new Error("bad op");
+    case "svc": return await svcOp(String(b.label), String(b.op));
+    case "svcs": {   // a whole group at once
+      const ls = (Array.isArray((b as any).labels) ? (b as any).labels : []).map(String).slice(0, 80);
+      const out: Record<string, string> = {};
+      for (const l of ls) { try { await svcOp(l, String(b.op)); out[l] = "ok"; } catch (e: any) { out[l] = String(e?.message ?? e); } }
+      return { results: out };
     }
     case "kill": { const pid = Number(b.pid); const mine = (await run(["ps", "-U", String(UID_), "-o", "pid="])).split("\n").map(Number); if (!mine.includes(pid) || pid === process.pid) throw new Error("not allowed"); const alive = () => { try { process.kill(pid, 0); return true; } catch { return false; } };
       process.kill(pid, "SIGTERM");
