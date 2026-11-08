@@ -13,7 +13,7 @@ header{display:flex;justify-content:space-between;align-items:baseline;margin:6p
 h1{font:500 28px/1.1 ui-serif,Georgia,"Times New Roman",serif;margin:0;letter-spacing:-.01em}
 #st{font-size:12.5px;color:var(--mut);display:flex;align-items:center;gap:6px}#st:before{content:"";width:7px;height:7px;border-radius:50%;background:var(--mut)}
 #st.ok:before{background:var(--ok)}#st.bad:before{background:var(--bad)}#st.bad{color:var(--bad)}
-.tabs{display:grid;grid-template-columns:repeat(3,1fr);background:var(--btn);border-radius:14px;padding:4px;margin-bottom:18px}
+.tabs{display:grid;grid-template-columns:repeat(4,1fr);background:var(--btn);border-radius:14px;padding:4px;margin-bottom:18px}
 .tabs button{height:38px;font-size:14.5px;font-weight:500;background:transparent;color:var(--mut);border-radius:11px}
 .tabs button.on{background:var(--card);color:var(--tx);box-shadow:var(--sh)}
 button{background:var(--btn);color:var(--tx);border:0;border-radius:14px;font:500 16px system-ui,sans-serif;height:54px;touch-action:manipulation;transition:background .12s,transform .08s}
@@ -70,7 +70,7 @@ code{font-size:12px;background:var(--btn);padding:1px 5px;border-radius:5px}
 </style></head><body>
 <div id="toast"></div>
 <header><h1>Remote</h1><span id="st">not connected</span></header>
-<nav class="tabs"><button id="tTv" class="on">TV</button><button id="tPc">Computer</button><button id="tHl">Health</button></nav>
+<nav class="tabs"><button id="tTv" class="on">TV</button><button id="tPc">Computer</button><button id="tHl">Health</button><button id="tSc">Screen</button></nav>
 <div id="tv">
 <div class="tvbar"><span id="tvs"><i class="dot"></i>TV: checking&hellip;</span><button id="find" class="mini">Find TV</button></div>
 <div class="remote">
@@ -105,6 +105,10 @@ code{font-size:12px;background:var(--btn);padding:1px 5px;border-radius:5px}
 <button id="smac" style="width:100%;height:46px">Save</button></div>
 <small>Needs Wake-on-LAN enabled on that computer, and this bridge running on another always-on device. A Mac can't wake itself once fully off &mdash; use &ldquo;Keep this Mac awake&rdquo; instead.</small>
 </div>
+<div id="sc" style="display:none"><div id="scNote" class="card" style="display:none"></div><div id="scBox" style="position:relative;touch-action:none;user-select:none;-webkit-user-select:none"><img id="scImg" alt="" draggable="false" style="width:100%;display:block;border-radius:12px;min-height:120px;background:#111"></div>
+<div style="display:flex;gap:8px;margin-top:10px"><input id="scTxt" placeholder="type on the Mac…" style="flex:1"><button class="sm" id="scSend">Send</button></div>
+<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button class="sm" data-pk="enter">Enter</button><button class="sm" data-pk="esc">Esc</button><button class="sm" data-pk="tab">Tab</button><button class="sm" id="scMode">Mode: scroll</button></div>
+<p style="opacity:.55;font-size:12px;margin-top:8px">Tap = click · double-tap = double-click · hold = right-click · drag = scroll (or drag-mode: move things)</p></div>
 <div id="hl"><div class="card" id="gauges"></div><h3>Services</h3><div class="card" id="svcs"></div><h3>Top processes</h3><div class="card" id="procs"></div>
 <small id="alerts"></small><button id="ta" style="width:100%;height:46px;margin-top:14px">Send test alert</button></div>
 <details id="setup"><summary>Setup</summary>
@@ -121,8 +125,38 @@ if(!L("bridge"))$("#setup").open=true;
 const st=(t,c)=>{$("#st").textContent=t;$("#st").className=c||""};
 const H=new URLSearchParams(location.hash.slice(1));
 if(H.get("b")){S("bridge",H.get("b"));if(H.get("t"))S("tok",H.get("t"));history.replaceState(null,"",location.pathname)}
-let hlT;const tab=n=>{clearInterval(hlT);if(n=="hl"){hlHealth();hlT=setInterval(hlHealth,10000)}$("#hl").style.display=n=="hl"?"block":"none";$("#tHl").className=n=="hl"?"on":"";$("#tv").style.display=n=="tv"?"":"none";$("#pc").style.display=n=="pc"?"block":"none";$("#tTv").className=n=="tv"?"on":"";$("#tPc").className=n=="pc"?"on":"";S("tab",n);if(n=="pc")pcStatus()};
-$("#tTv").onclick=()=>tab("tv");$("#tPc").onclick=()=>tab("pc");$("#tHl").onclick=()=>tab("hl");
+
+// ---- Screen tab (Tailscale only) ----
+let scOn=0,dragMode=0;
+function scNote(t){const n=$("#scNote");n.textContent=t;n.style.display=t?"":"none"}
+async function scStart(){if(scOn)return;
+  if(location.protocol=="https:"){scNote("Screen control is only offered over Tailscale, not the public link. With Tailscale on, open http://100.111.34.78:8788 on this phone.");return}
+  scOn=1;const b=L("bridge").replace(/\/$/,"");
+  while($("#sc").style.display!="none"&&!document.hidden){
+    try{const r=await fetch(b+"/pc/screen",{headers:{"x-token":L("tok")}});
+      if(r.status==401){askPass();break}
+      if(!r.ok){scNote((await r.json()).error||"error");break}
+      const u=URL.createObjectURL(await r.blob()),old=$("#scImg").src;$("#scImg").src=u;if(old.startsWith("blob:"))URL.revokeObjectURL(old);scNote("")}
+    catch{scNote("Can't reach the Mac. Is Tailscale on?");break}
+    await new Promise(r=>setTimeout(r,220))}
+  scOn=0}
+document.addEventListener("visibilitychange",()=>{if(!document.hidden&&$("#sc").style.display=="block")scStart()});
+$("#scMode").onclick=()=>{dragMode=!dragMode;$("#scMode").textContent="Mode: "+(dragMode?"drag":"scroll")};
+$("#scSend").onclick=()=>{const v=$("#scTxt").value;if(v){pcApi("type",{text:v});$("#scTxt").value=""}};
+(()=>{const box=$("#scBox");let d=null,lastTap=0,lastX=0,lastY=0,sc=0,scT=0;
+  const fr=e=>{const r=$("#scImg").getBoundingClientRect();return{x:Math.min(1,Math.max(0,(e.clientX-r.left)/r.width)),y:Math.min(1,Math.max(0,(e.clientY-r.top)/r.height))}};
+  const send=(a,b)=>pcApi(a,b).then(()=>{});
+  box.onpointerdown=e=>{box.setPointerCapture(e.pointerId);d={sx:e.clientX,sy:e.clientY,t:Date.now(),moved:0,long:0,p:fr(e)};
+    d.lt=setTimeout(()=>{if(d&&!d.moved){d.long=1;if(navigator.vibrate)navigator.vibrate(20);send("tap",{fx:d.p.x,fy:d.p.y,kind:"right"})}},550)};
+  box.onpointermove=e=>{if(!d)return;const dx=e.clientX-d.sx,dy=e.clientY-d.sy;if(Math.abs(dx)+Math.abs(dy)>8){d.moved=1;clearTimeout(d.lt)}
+    if(d.moved&&!dragMode){sc+=e.clientY-(d.ly??d.sy);d.ly=e.clientY;const now=Date.now();if(now-scT>90&&Math.abs(sc)>1){scT=now;send("scroll",{dy:Math.round(sc*2)});sc=0}}};
+  box.onpointerup=e=>{if(!d)return;clearTimeout(d.lt);const p=fr(e);
+    if(d.moved&&dragMode)send("drag",{x1:d.p.x,y1:d.p.y,x2:p.x,y2:p.y});
+    else if(!d.moved&&!d.long){const now=Date.now(),dbl=now-lastTap<320;lastTap=dbl?0:now;send("tap",{fx:p.x,fy:p.y,kind:dbl?"double":"click"})}
+    d=null};
+  box.onpointercancel=()=>{if(d)clearTimeout(d.lt);d=null}})();
+let hlT;const tab=n=>{clearInterval(hlT);if(n=="hl"){hlHealth();hlT=setInterval(hlHealth,10000)}$("#hl").style.display=n=="hl"?"block":"none";$("#sc").style.display=n=="sc"?"block":"none";$("#tSc").className=n=="sc"?"on":"";if(n=="sc")scStart();$("#tHl").className=n=="hl"?"on":"";$("#tv").style.display=n=="tv"?"":"none";$("#pc").style.display=n=="pc"?"block":"none";$("#tTv").className=n=="tv"?"on":"";$("#tPc").className=n=="pc"?"on":"";S("tab",n);if(n=="pc")pcStatus()};
+$("#tTv").onclick=()=>tab("tv");$("#tPc").onclick=()=>tab("pc");$("#tHl").onclick=()=>tab("hl");$("#tSc").onclick=()=>tab("sc");
 async function hlHealth(){const j=await pcApi("health");if(!j)return;
   const g=(n,v,t,inv)=>{const bad=inv?v<t:v>t;return `<div class="gauge"><div class="gh"><span>${n}</span><b class="${bad?"bad":""}">${v}%</b></div><div class="bar"><i class="${bad?"bad":""}" style="width:${Math.min(100,v)}%"></i></div></div>`};
   $("#gauges").innerHTML=g("CPU load",j.cpu,j.th.cpu)+g("Memory",j.mem,j.th.mem)+g("Disk",j.disk,j.th.disk)+(j.batt==null?"":g("Battery"+(j.charging?" · charging":""),j.batt,j.th.batt,1));

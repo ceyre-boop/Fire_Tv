@@ -93,6 +93,51 @@ async function pc(action: string, b: Record<string, string>) {
   }
 }
 
+
+// ---- Screen tab: mirror the Mac to the phone and take touch input. Tailscale/localhost ONLY, never through the public tunnel. ----
+const tailnetOnly = (req: Request) => {
+  if (req.headers.get("cf-connecting-ip") || req.headers.get("cf-ray")) return false;   // arrived through the cloudflare tunnel
+  const h = new URL(req.url).hostname;
+  return /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(h) || h.endsWith(".ts.net") || h === "localhost" || h === "127.0.0.1";
+};
+let dims: [number, number] | null = null;
+async function dispSize(): Promise<[number, number]> {
+  if (!dims) { const o = await run(["osascript", "-l", "JavaScript", "-e", 'ObjC.import("AppKit");const f=$.NSScreen.screens.objectAtIndex(0).frame;f.size.width+","+f.size.height']); const [w, h] = o.split(",").map(Number); dims = [w || 1440, h || 900]; }
+  return dims;
+}
+const n = (v: unknown, lo: number, hi: number) => Math.min(hi, Math.max(lo, Number(v) || 0));
+const jxa = (body: string) => run(["osascript", "-l", "JavaScript", "-e", `ObjC.import("CoreGraphics");const P=(t,x,y,b,c)=>{const e=$.CGEventCreateMouseEvent(null,t,$.CGPointMake(x,y),b);if(c)$.CGEventSetIntegerValueField(e,1,c);$.CGEventPost($.kCGHIDEventTap,e)};${body}`]);
+async function screen(action: string, req: Request): Promise<Response> {
+  const [W, H] = await dispSize();
+  if (action === "screen") {
+    const raw = "/tmp/firetv-screen.png", out = "/tmp/firetv-screen.jpg";
+    await run(["rm", "-f", raw, out]);   // never serve a stale frame if the capture fails
+    await run(["screencapture", "-x", "-C", "-t", "png", raw]);
+    await run(["sips", "-Z", "1100", "-s", "format", "jpeg", "-s", "formatOptions", "45", raw, "--out", out]);
+    const f = Bun.file(out); if (!(await f.exists()) || f.size === 0) return json({ error: "no screenshot — allow Screen Recording for the bridge in System Settings > Privacy & Security" }, 500);
+    return new Response(f, { headers: { ...cors, "content-type": "image/jpeg", "cache-control": "no-store" } });
+  }
+  const b = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+  if (action === "tap") {
+    const x = n(b.fx, 0, 1) * W, y = n(b.fy, 0, 1) * H, kind = String(b.kind);
+    if (kind === "right") await jxa(`P(3,${x},${y},1,1);P(4,${x},${y},1,1)`);
+    else if (kind === "double") await jxa(`P(1,${x},${y},0,1);P(2,${x},${y},0,1);P(1,${x},${y},0,2);P(2,${x},${y},0,2)`);
+    else await jxa(`P(1,${x},${y},0,1);P(2,${x},${y},0,1)`);
+    return json({ ok: true });
+  }
+  if (action === "drag") {
+    const x1 = n(b.x1, 0, 1) * W, y1 = n(b.y1, 0, 1) * H, x2 = n(b.x2, 0, 1) * W, y2 = n(b.y2, 0, 1) * H;
+    await jxa(`P(5,${x1},${y1},0);P(1,${x1},${y1},0,1);for(let i=1;i<=12;i++)P(6,${x1}+(${x2}-${x1})*i/12,${y1}+(${y2}-${y1})*i/12,0);P(2,${x2},${y2},0,1)`);
+    return json({ ok: true });
+  }
+  if (action === "scroll") {
+    const dy = Math.round(n(b.dy, -2000, 2000)), dx = Math.round(n(b.dx, -2000, 2000));
+    await jxa(`$.CGEventPost($.kCGHIDEventTap,$.CGEventCreateScrollWheelEvent(null,0,2,${dy},${dx}))`);
+    return json({ ok: true });
+  }
+  return json({ error: "unknown" }, 404);
+}
+
 const PORT = Number(process.env.PORT ?? 8788);
 const SITE = process.env.SITE_URL ?? "https://web-woad-eight-46.vercel.app";
 const KEYS: Record<string, number> = {
@@ -252,6 +297,10 @@ Bun.serve({
         return new Response(Bun.file(new URL("../web/index.html", import.meta.url)), { headers: { "content-type": "text/html" } });
       if (url.pathname.startsWith("/pc/")) {
         if (req.headers.get("x-token") !== TOKEN) return json({ error: "bad token — re-scan the pairing QR" }, 401);
+        if (/^\/pc\/(screen|tap|drag|scroll)$/.test(url.pathname)) {
+          if (!tailnetOnly(req)) return json({ error: "screen control only works over Tailscale, not the public link" }, 403);
+          return await screen(url.pathname.slice(4), req);
+        }
         const b = req.method === "POST" ? ((await req.json().catch(() => ({}))) as Record<string, string>) : {};
         return json(await pc(url.pathname.slice(4), b));
       }
