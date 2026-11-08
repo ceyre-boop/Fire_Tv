@@ -78,7 +78,11 @@ async function pc(action: string, b: Record<string, string>) {
       if (b.op === "start") { const o = await run(["launchctl", "bootstrap", `gui/${UID_}`, `${LA}/${l}.plist`]); return { out: o + (await run(["launchctl", "kickstart", t])) }; }
       throw new Error("bad op");
     }
-    case "kill": { const pid = Number(b.pid); const mine = (await run(["ps", "-U", String(UID_), "-o", "pid="])).split("\n").map(Number); if (!mine.includes(pid) || pid === process.pid) throw new Error("not allowed"); process.kill(pid, "SIGTERM"); return {}; }
+    case "kill": { const pid = Number(b.pid); const mine = (await run(["ps", "-U", String(UID_), "-o", "pid="])).split("\n").map(Number); if (!mine.includes(pid) || pid === process.pid) throw new Error("not allowed"); const alive = () => { try { process.kill(pid, 0); return true; } catch { return false; } };
+      process.kill(pid, "SIGTERM");
+      for (let i = 0; i < 15 && alive(); i++) await Bun.sleep(100);      // give it 1.5s to exit politely
+      let forced = false; if (alive()) { process.kill(pid, "SIGKILL"); forced = true; for (let i = 0; i < 5 && alive(); i++) await Bun.sleep(100); }
+      return { gone: !alive(), forced }; }
     case "testalert": await fetch("https://ntfy.sh/" + TOPIC, { method: "POST", headers: { Title: "Test" }, body: "Alerts work" }); return {};
     case "keepawake":
       if (awake) { awake.kill(); awake = null; } else awake = Bun.spawn(["caffeinate", "-dims"]);

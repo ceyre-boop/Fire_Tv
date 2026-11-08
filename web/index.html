@@ -179,7 +179,7 @@ document.addEventListener("click",e=>{const t=e.target.closest("button");if(!t)r
   if(navigator.vibrate)navigator.vibrate(12);
   if(t.dataset.p){pcApi(t.dataset.p,{dir:t.dataset.d}).then(j=>{if(j&&t.dataset.p=="keepawake")pcStatus()});return}
   if(t.dataset.sv){pcApi("svc",{label:t.dataset.l,op:t.dataset.sv}).then(()=>setTimeout(hlHealth,1500));return}
-  if(t.dataset.kill){if(confirm("Kill process "+t.dataset.kill+"?"))pcApi("kill",{pid:t.dataset.kill}).then(()=>setTimeout(hlHealth,800));return}
+  if(t.dataset.kill){if(confirm("Kill process "+t.dataset.kill+"?"))pcApi("kill",{pid:t.dataset.kill}).then(j=>{if(j)toast(j.gone?(j.forced?"Force-killed":"Stopped"):"Still running (it restarts itself or isn\u2019t yours to stop)",!j.gone);setTimeout(hlHealth,400)});return}
   if(t.dataset.pk){pcApi("key",{key:t.dataset.pk});return}if(t.dataset.po){pcApi("open",{app:t.dataset.po});return}
   if(t.dataset.k)api("/key",{key:t.dataset.k});else if(t.dataset.a)api("/launch",{app:t.dataset.a}).then(j=>j?toast("Opening "+t.dataset.a):toast("Not sent - bridge or TV offline",1))});
 $("#send").onclick=async()=>{await api("/text",{text:$("#txt").value});$("#txt").value=""};
