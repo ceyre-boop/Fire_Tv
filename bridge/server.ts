@@ -2,6 +2,7 @@
 import { networkInterfaces } from "node:os";
 import { connect as tcp } from "node:net";
 import { createSocket } from "node:dgram";
+import { connect as sock, type Socket } from "node:net";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { readdirSync } from "node:fs";
@@ -157,6 +158,62 @@ async function check() {
 }
 (async function loop() { try { await check(); } catch (e) { console.error(e); } setTimeout(loop, tvOk ? 8000 : 4000); })();
 
+
+// ---- Fast key path ----
+// `adb shell input keyevent` boots a Java VM per press (1.6-2.3 s on this Fire TV). Instead we keep ONE persistent
+// `monkey --port` server running on the TV and push key presses over a socket (~60 ms).
+let mode: "fast" | "slow" = "slow", fastSock: Socket | null = null, fastPort = 0, fastBusy: Promise<unknown> = Promise.resolve();
+let bench: Record<string, unknown> = {};
+const dev = () => `${tv}:5555`;
+async function startFast(): Promise<boolean> {
+  try {
+    if (!(await adb(["-s", dev(), "shell", "ps -A | grep -c com.android.commands.monkey"])).trim().match(/^[1-9]/)) {
+      Bun.spawn(["adb", "-s", dev(), "shell", "nohup monkey --port 1080 </dev/null >/dev/null 2>&1 &"], { stdout: "ignore", stderr: "ignore" });
+      await new Promise((r) => setTimeout(r, 3500));
+    }
+    fastPort = Number((await adb(["-s", dev(), "forward", "tcp:0", "tcp:1080"])).trim());
+    if (!fastPort) return false;
+    fastSock?.destroy();
+    fastSock = sock(fastPort, "127.0.0.1"); fastSock.setNoDelay(true); fastSock.on("error", () => { fastSock = null; }); fastSock.on("close", () => { fastSock = null; });
+    await new Promise<void>((res, rej) => { fastSock!.once("connect", () => res()); fastSock!.once("error", rej); });
+    return true;
+  } catch { return false; }
+}
+function fastCmd(c: string, timeout = 3000): Promise<string> {
+  const run1 = () => new Promise<string>((res, rej) => {
+    const s2 = fastSock; if (!s2) return rej(new Error("no socket"));
+    let buf = ""; const t = setTimeout(() => { s2.off("data", on); rej(new Error("timeout")); }, timeout);
+    const on = (d: Buffer) => { buf += d; if (buf.includes("\n")) { clearTimeout(t); s2.off("data", on); res(buf.trim()); } };
+    s2.on("data", on); s2.write(c + "\n");
+  });
+  const p = fastBusy.then(run1, run1); fastBusy = p.catch(() => {}); return p;   // serialize: one reply per command
+}
+const median = (a: number[]) => [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)];
+async function timeIt(f: () => Promise<unknown>) { const t = performance.now(); await f(); return performance.now() - t; }
+// Automatic latency test: measures both paths, picks the faster, records the result. KEYCODE_UNKNOWN (0) does nothing on the TV.
+async function runBench() {
+  const out: Record<string, unknown> = { at: new Date().toISOString() };
+  const slow: number[] = []; for (let i = 0; i < 3; i++) slow.push(await timeIt(() => adb(["-s", dev(), "shell", "input", "keyevent", "0"])));
+  out.slowMedianMs = Math.round(median(slow));
+  if (await startFast()) {
+    for (let attempt = 0; attempt < 3; attempt++) {   // the first presses after monkey boots are slow (JIT) - warm up, re-measure
+      for (let i = 0; i < 3; i++) await fastCmd("press 0", 10000).catch(() => {});
+      const fast: number[] = []; for (let i = 0; i < 10; i++) fast.push(await timeIt(() => fastCmd("press 0", 2000)).catch(() => 9999));
+      out.fastMedianMs = Math.round(median(fast)); out.fastMaxMs = Math.round(Math.max(...fast)); out.attempts = attempt + 1;
+      if ((out.fastMedianMs as number) < 400) break;
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+  }
+  mode = typeof out.fastMedianMs === "number" && out.fastMedianMs < 400 && (out.fastMedianMs as number) < (out.slowMedianMs as number) ? "fast" : "slow";
+  out.mode = mode; bench = out; console.log("latency test:", JSON.stringify(out));
+  return out;
+}
+async function pressKey(code: number) {
+  if (mode === "fast") { try { const r = await fastCmd(`press ${code}`); if (r.startsWith("OK")) return r; } catch {} if (await startFast()) { try { return await fastCmd(`press ${code}`); } catch {} } mode = "slow"; }
+  return adb(["-s", dev(), "shell", "input", "keyevent", String(code)]);
+}
+let benched = "";
+setInterval(() => { if (tvOk && tv && benched !== tv) { benched = tv; runBench().catch(() => { benched = ""; }); } if (!tvOk) benched = ""; }, 3000);
 const sh = (...cmd: string[]) => adb(["-s", `${tv}:5555`, "shell", ...cmd]);
 
 Bun.serve({
@@ -172,7 +229,8 @@ Bun.serve({
         const b = req.method === "POST" ? ((await req.json().catch(() => ({}))) as Record<string, string>) : {};
         return json(await pc(url.pathname.slice(4), b));
       }
-      if (url.pathname === "/health") return json({ ok: true, tv, tvConnected: tvOk });
+      if (url.pathname === "/health") return json({ ok: true, tv, tvConnected: tvOk, mode });
+      if (url.pathname === "/bench") return json(req.method === "POST" || !bench.mode ? await runBench() : bench);
       if (url.pathname === "/rescan") {   // forget the TV and look for it again right now
         if (!process.env.TV_IP) tv = null; tvOk = false; await check();
         return json({ ok: true, tv, tvConnected: tvOk });
@@ -183,7 +241,7 @@ Bun.serve({
       if (url.pathname === "/key") {
         const code = KEYS[String(b.key).toUpperCase()];
         if (!code) return json({ error: "unknown key" }, 400);
-        return json({ result: await sh("input", "keyevent", String(code)) });
+        return json({ result: await pressKey(code), mode });
       }
       if (url.pathname === "/launch") {
         const pkg = APPS[String(b.app)];

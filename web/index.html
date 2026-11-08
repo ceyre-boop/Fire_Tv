@@ -36,13 +36,13 @@ small,.note{color:var(--mut);display:block;margin:10px 4px 0;font-size:12.5px;li
 #pc,#hl{display:none}
 .tvbar{display:flex;justify-content:space-between;align-items:center;margin:0 4px 12px;font-size:13.5px;color:var(--mut)}#tvs{display:flex;align-items:center;gap:8px}
 .seg{display:grid;grid-template-columns:1fr 1fr;background:var(--btn);border-radius:12px;padding:3px;margin:14px 0 10px}.seg button{height:34px;font-size:13.5px;background:transparent;color:var(--mut);border-radius:9px}.seg .on{background:var(--card);color:var(--tx);box-shadow:var(--sh)}
-.dpad,.swipe{position:relative;width:min(100%,340px);aspect-ratio:1;margin:8px auto 14px;border-radius:50%;background:var(--card);border:1px solid var(--line);box-shadow:var(--sh);touch-action:none;overflow:hidden}
-.swipe{display:none;border-radius:28px;aspect-ratio:1.15;text-align:center;color:var(--mut);align-items:center;justify-content:center;font-size:14px;line-height:1.6}.swipe p{margin:0;pointer-events:none}
+.dpad,.swipe{position:relative;width:170px;aspect-ratio:1;margin:8px auto 14px;border-radius:50%;background:var(--card);border:1px solid var(--line);box-shadow:var(--sh);touch-action:none;overflow:hidden}
+.swipe{display:none;border-radius:24px;width:min(100%,260px);aspect-ratio:1.6;text-align:center;color:var(--mut);align-items:center;justify-content:center;font-size:14px;line-height:1.6}.swipe p{margin:0;pointer-events:none}
 .dpad .w{position:absolute;inset:0;opacity:0;background:var(--acc);transition:opacity .08s}
 .dpad .w.up{clip-path:polygon(50% 50%,0 0,100% 0)}.dpad .w.right{clip-path:polygon(50% 50%,100% 0,100% 100%)}.dpad .w.down{clip-path:polygon(50% 50%,100% 100%,0 100%)}.dpad .w.left{clip-path:polygon(50% 50%,0 100%,0 0)}
 .dpad .w.on{opacity:.28}
-.dpad .a{position:absolute;color:var(--mut);font-size:20px;pointer-events:none}.a.u{top:9%;left:50%;transform:translateX(-50%)}.a.d{bottom:9%;left:50%;transform:translateX(-50%)}.a.l{left:9%;top:50%;transform:translateY(-50%)}.a.r{right:9%;top:50%;transform:translateY(-50%)}
-.dpad .mid{position:absolute;left:50%;top:50%;width:36%;aspect-ratio:1;transform:translate(-50%,-50%);border-radius:50%;background:var(--acc);color:var(--onacc);display:flex;align-items:center;justify-content:center;font-weight:600;transition:background .08s,transform .08s;pointer-events:none}
+.dpad .a{position:absolute;color:var(--mut);font-size:14px;pointer-events:none}.a.u{top:9%;left:50%;transform:translateX(-50%)}.a.d{bottom:9%;left:50%;transform:translateX(-50%)}.a.l{left:9%;top:50%;transform:translateY(-50%)}.a.r{right:9%;top:50%;transform:translateY(-50%)}
+.dpad .mid{position:absolute;left:50%;top:50%;width:38%;font-size:14px;aspect-ratio:1;transform:translate(-50%,-50%);border-radius:50%;background:var(--acc);color:var(--onacc);display:flex;align-items:center;justify-content:center;font-weight:600;transition:background .08s,transform .08s;pointer-events:none}
 .dpad .mid.on{background:var(--accx);transform:translate(-50%,-50%) scale(.94)}
 .hold{position:relative;overflow:hidden}.hold:after{content:"";position:absolute;left:0;bottom:0;height:4px;width:0;background:var(--bad)}.hold.go:after{width:100%;transition:width .7s linear}
 #toast{position:fixed;left:50%;bottom:max(18px,env(safe-area-inset-bottom));transform:translate(-50%,20px);background:var(--tx);color:var(--bg);padding:9px 16px;border-radius:20px;font-size:13.5px;opacity:0;transition:.2s;pointer-events:none;z-index:9}#toast.show{opacity:.94;transform:translate(-50%,0)}#toast.err{background:var(--bad);color:#fff}
@@ -100,6 +100,7 @@ code{font-size:12px;background:var(--btn);padding:1px 5px;border-radius:5px}
 </details>
 <script>
 const $=s=>document.querySelector(s),L=k=>{try{return localStorage.getItem(k)||""}catch{return""}},S=(k,v)=>{try{localStorage.setItem(k,v)}catch{}};
+if(location.port=="8788")S("bridge",location.origin);   // served by the bridge itself: talk to it directly
 $("#bridge").value=L("bridge");$("#ip").value=L("ip");
 if(!L("bridge"))$("#setup").open=true;
 const st=(t,c)=>{$("#st").textContent=t;$("#st").className=c||""};
