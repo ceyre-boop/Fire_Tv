@@ -121,6 +121,10 @@ async function screen(action: string, req: Request): Promise<Response> {
     const f = Bun.file(out); if (!(await f.exists()) || f.size === 0) return json({ error: "no screenshot — allow Screen Recording for the bridge in System Settings > Privacy & Security" }, 500);
     return new Response(f, { headers: { ...cors, "content-type": "image/jpeg", "cache-control": "no-store" } });
   }
+  if (action === "inputcheck") {   // can this process post clicks? (needs the Accessibility permission; without it taps silently do nothing)
+    const o = await run(["osascript", "-l", "JavaScript", "-e", 'ObjC.import("ApplicationServices");$.AXIsProcessTrusted()']);
+    return json({ accessibility: o.trim() === "true" });
+  }
   const b = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   if (action === "tap") {
     const x = n(b.fx, 0, 1) * W, y = n(b.fy, 0, 1) * H, kind = String(b.kind);
@@ -301,7 +305,7 @@ Bun.serve({
         return new Response(Bun.file(new URL("../web/index.html", import.meta.url)), { headers: { "content-type": "text/html" } });
       if (url.pathname.startsWith("/pc/")) {
         if (req.headers.get("x-token") !== TOKEN) return json({ error: "bad token — re-scan the pairing QR" }, 401);
-        if (/^\/pc\/(screen|tap|drag|scroll)$/.test(url.pathname)) {
+        if (/^\/pc\/(screen|tap|drag|scroll|inputcheck)$/.test(url.pathname)) {
           if (!tailnetOnly(req)) return json({ error: "screen control only works over Tailscale, not the public link" }, 403);
           return await screen(url.pathname.slice(4), req);
         }

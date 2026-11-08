@@ -130,14 +130,16 @@ if(H.get("b")){S("bridge",H.get("b"));if(H.get("t"))S("tok",H.get("t"));history.
 let scOn=0,dragMode=0;
 function scNote(t){const n=$("#scNote");n.textContent=t;n.style.display=t?"":"none"}
 async function scStart(){if(scOn)return;
-  if(location.protocol=="https:"){{const n=$("#scNote");n.textContent="Screen control only works over Tailscale, not this public link. Turn Tailscale on, then: ";const a=document.createElement("a");a.textContent="open the Tailscale version";a.style.color="var(--tx)";a.href="http://100.111.34.78:8788/#b="+encodeURIComponent("http://100.111.34.78:8788")+"&t="+encodeURIComponent(L("tok"));n.appendChild(a);n.style.display="";return}}
-  scOn=1;const b=L("bridge").replace(/\/$/,"");
+  if(location.protocol=="https:"){const n=$("#scNote");n.textContent="Screen control only works over Tailscale, not this public link. Turn Tailscale on, then: ";const a=document.createElement("a");a.textContent="open the Tailscale version";a.style.color="var(--tx)";a.href="http://100.111.34.78:8788/#b="+encodeURIComponent("http://100.111.34.78:8788")+"&t="+encodeURIComponent(L("tok"));n.appendChild(a);n.style.display="";return}
+  scOn=1;const b=L("bridge").replace(/\/$/,"");scNote("connecting to the Mac…");let tries=0,warned=0;
   while($("#sc").style.display!="none"&&!document.hidden){
     try{const r=await fetch(b+"/pc/screen",{headers:{"x-token":L("tok")}});
-      if(r.status==401){askPass();break}
-      if(!r.ok){scNote((await r.json()).error||"error");break}
-      const u=URL.createObjectURL(await r.blob()),old=$("#scImg").src;$("#scImg").src=u;if(old.startsWith("blob:"))URL.revokeObjectURL(old);scNote("")}
-    catch{scNote("Can't reach the Mac. Is Tailscale on?");break}
+      if(r.status==401){askPass();scNote("bad passcode");break}
+      if(!r.ok){let m="error "+r.status;try{m=(await r.json()).error||m}catch{}scNote(m);await new Promise(r=>setTimeout(r,2500));continue}
+      const u=URL.createObjectURL(await r.blob()),old=$("#scImg").src;$("#scImg").src=u;if(old.startsWith("blob:"))URL.revokeObjectURL(old);tries=0;
+      if(!warned){warned=1;fetch(b+"/pc/inputcheck",{headers:{"x-token":L("tok")}}).then(r=>r.json()).then(j=>scNote(j.accessibility?"":"You can see the screen, but taps won't work yet: on the Mac, System Settings > Privacy & Security > Accessibility > add bun (/Users/taboost/.bun/bin/bun) and switch it on.")).catch(()=>{})}
+      else if($("#scNote").textContent.startsWith("connecting"))scNote("")}
+    catch(e){scNote("can't reach the Mac ("+(++tries)+") - is Tailscale on? retrying…");await new Promise(r=>setTimeout(r,2000));continue}
     await new Promise(r=>setTimeout(r,220))}
   scOn=0}
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&$("#sc").style.display=="block")scStart()});
