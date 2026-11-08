@@ -160,6 +160,7 @@ async function screen(action: string, req: Request): Promise<Response> {
   return json({ error: "unknown" }, 404);
 }
 
+let lastScreenLog = 0;
 const PORT = Number(process.env.PORT ?? 8788);
 const SITE = process.env.SITE_URL ?? "https://web-woad-eight-46.vercel.app";
 const KEYS: Record<string, number> = {
@@ -321,7 +322,9 @@ Bun.serve({
         if (req.headers.get("x-token") !== TOKEN) return json({ error: "bad token — re-scan the pairing QR" }, 401);
         if (/^\/pc\/(screen|tap|drag|scroll|inputcheck)$/.test(url.pathname)) {
           if (!tailnetOnly(req)) return json({ error: "screen control only works over Tailscale, not the public link" }, 403);
-          return await screen(url.pathname.slice(4), req);
+          const res = await screen(url.pathname.slice(4), req);
+          if (res.status !== 200 || url.pathname !== "/pc/screen" || Date.now() - lastScreenLog > 30000) { lastScreenLog = Date.now(); console.log(`[screen] ${url.pathname} ${res.status} host=${url.hostname} ua=${(req.headers.get("user-agent") ?? "").slice(0, 50)}`); }
+          return res;
         }
         const b = req.method === "POST" ? ((await req.json().catch(() => ({}))) as Record<string, string>) : {};
         return json(await pc(url.pathname.slice(4), b));
